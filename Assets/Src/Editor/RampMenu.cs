@@ -6,6 +6,7 @@ public class RampMenu : MonoBehaviour {
   [MenuItem("GameObject/Ramp/Platform")]
   static void CreatePlatform (MenuCommand menuCommand) {
     var gameObject = new GameObject("Platform");
+    gameObject.layer = LayerMask.NameToLayer("Ramp");
     var platform = gameObject.AddComponent<Platform>();
     foreach (Object obj in AssetDatabase.LoadAllAssetsAtPath("Resources/unity_builtin_extra")) {
       if (obj.name.Equals("Default-Material")) platform.SetMaterial(obj as Material);

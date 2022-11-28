@@ -15,7 +15,9 @@ public class RampTraverser : MonoBehaviour {
         raycastLayerMask,
         QueryTriggerInteraction.Ignore)) {
       transform.position = hitInfo.point;
-      transform.up = hitInfo.normal;
+
+      var angle = Vector3.Angle(transform.up, hitInfo.normal);
+      if (angle > 0.01f) transform.Rotate(Vector3.Cross(transform.up, hitInfo.normal), angle, Space.World);
     }
   }
 }
