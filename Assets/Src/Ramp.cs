@@ -7,6 +7,7 @@ using UnityEngine;
 public abstract class Ramp : MonoBehaviour {
   public float lipRadius = 0.1f;
   public int lipDivisions = 5;
+  public float railHeight = 1.0f;
 
   Material material;
   Bounds? lastRebuildBounds;
@@ -39,19 +40,22 @@ public abstract class Ramp : MonoBehaviour {
       meshFilter = gameObject.AddComponent<MeshFilter>();
       meshFilter.sharedMesh = new Mesh();
     }
-    PopulateMesh(meshFilter.sharedMesh);
+    var meshCollider = GetComponent<MeshCollider>();
+    if (!meshCollider) {
+      meshCollider = gameObject.AddComponent<MeshCollider>();
+      meshCollider.sharedMesh = new Mesh();
+    }
+
+    var builder = new MeshBuilder(this);
+    PopulateMeshBuilder(builder);
+    builder.Populate(meshFilter.sharedMesh, meshCollider.sharedMesh);
     meshFilter.sharedMesh.RecalculateBounds();
+    meshCollider.sharedMesh.RecalculateBounds();
 
     var meshRenderer = GetComponent<MeshRenderer>();
     if (!meshRenderer) {
       meshRenderer = gameObject.AddComponent<MeshRenderer>();
       meshRenderer.material = material;
-    }
-
-    var meshCollider = GetComponent<MeshCollider>();
-    if (!meshCollider) {
-      meshCollider = gameObject.AddComponent<MeshCollider>();
-      meshCollider.sharedMesh = meshFilter.sharedMesh;
     }
   }
 
@@ -61,7 +65,6 @@ public abstract class Ramp : MonoBehaviour {
       if (Application.isEditor) Object.DestroyImmediate(meshFilter.sharedMesh);
       else Object.Destroy(meshFilter.sharedMesh);
     }
-    if (Application.isEditor) EditorApplication.update -= OnUpdate;
   }
 
   void OnUpdate () {
@@ -105,7 +108,7 @@ public abstract class Ramp : MonoBehaviour {
 
   protected abstract Bounds GetLocalBounds ();
 
-  protected abstract void PopulateMesh (Mesh mesh);
+  protected abstract void PopulateMeshBuilder (MeshBuilder builder);
 
   protected struct Cutout {
     public Vector3 start;
@@ -129,9 +132,13 @@ public abstract class Ramp : MonoBehaviour {
   protected class MeshBuilder {
     Ramp outer;
     List<Cutout> cutouts = new List<Cutout>();
-    List<Vector3> vertices = new List<Vector3>();
-    List<Vector3> normals = new List<Vector3>();
-    List<int> indices = new List<int>();
+    List<Vector3> visibleVertices = new List<Vector3>();
+    List<Vector3> visibleNormals = new List<Vector3>();
+    List<int> visibleIndices = new List<int>();
+    List<Vector3> collisionVertices = new List<Vector3>();
+    List<int> collisionIndices = new List<int>();
+
+    delegate void AddIndices (List<int> indices, int firstIndex);
 
     public MeshBuilder (Ramp outer) {
       this.outer = outer;
@@ -151,25 +158,36 @@ public abstract class Ramp : MonoBehaviour {
     }
 
     public MeshBuilder AddQuads (params Vector3[] quads) {
+      AddIndices AddQuadIndices = (List<int> indices, int firstIndex) => {
+        indices.Add(firstIndex);
+        indices.Add(firstIndex + 1);
+        indices.Add(firstIndex + 2);
+
+        indices.Add(firstIndex + 2);
+        indices.Add(firstIndex + 3);
+        indices.Add(firstIndex);
+      };
       for (var ii = 0; ii < quads.Length; ) {
         var (v0, v1, v2, v3) = (quads[ii++], quads[ii++], quads[ii++], quads[ii++]);
-        indices.Add(vertices.Count);
-        indices.Add(vertices.Count + 1);
-        indices.Add(vertices.Count + 2);
-        indices.Add(vertices.Count + 2);
-        indices.Add(vertices.Count + 3);
-        indices.Add(vertices.Count);
+        AddQuadIndices(visibleIndices, visibleVertices.Count);
 
-        vertices.Add(v0);
-        vertices.Add(v1);
-        vertices.Add(v2);
-        vertices.Add(v3);
+        visibleVertices.Add(v0);
+        visibleVertices.Add(v1);
+        visibleVertices.Add(v2);
+        visibleVertices.Add(v3);
 
         var normal = Vector3.Cross(v1 - v0, v3 - v0).normalized;
-        normals.Add(normal);
-        normals.Add(normal);
-        normals.Add(normal);
-        normals.Add(normal);
+        visibleNormals.Add(normal);
+        visibleNormals.Add(normal);
+        visibleNormals.Add(normal);
+        visibleNormals.Add(normal);
+
+        AddQuadIndices(collisionIndices, collisionVertices.Count);
+
+        collisionVertices.Add(v0);
+        collisionVertices.Add(v1);
+        collisionVertices.Add(v2);
+        collisionVertices.Add(v3);
       }
       return this;
     }
@@ -207,23 +225,7 @@ public abstract class Ramp : MonoBehaviour {
           return;
         }
 
-        var indexBase = vertices.Count;
-        var startRight = Vector3.Cross(startUp, dir).normalized;
-        var endRight = Vector3.Cross(endUp, dir).normalized;
-        for (var ii = 0; ii <= outer.lipDivisions; ++ii) {
-          var angle = ii * Mathf.PI / outer.lipDivisions;
-          var sina = Mathf.Sin(angle);
-          var cosa = Mathf.Cos(angle);
-          var startVector = sina * startUp - cosa * startRight;
-          vertices.Add(start + startVector * outer.lipRadius);
-          normals.Add(startVector);
-          var endVector = sina * endUp - cosa * endRight;
-          vertices.Add(end + endVector * outer.lipRadius);
-          normals.Add(endVector);
-        }
-
-        for (var ii = 0; ii < outer.lipDivisions; ++ii) {
-          var firstIndex = indexBase + ii * 2;
+        AddIndices AddQuadIndices = (List<int> indices, int firstIndex) => {
           indices.Add(firstIndex);
           indices.Add(firstIndex + 1);
           indices.Add(firstIndex + 3);
@@ -231,14 +233,41 @@ public abstract class Ramp : MonoBehaviour {
           indices.Add(firstIndex + 3);
           indices.Add(firstIndex + 2);
           indices.Add(firstIndex);
+        };
+        for (var ii = 0; ii < outer.lipDivisions; ++ii) {
+          AddQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
         }
+        var startRight = Vector3.Cross(startUp, dir).normalized;
+        var endRight = Vector3.Cross(endUp, dir).normalized;
+        for (var ii = 0; ii <= outer.lipDivisions; ++ii) {
+          var angle = ii * Mathf.PI / outer.lipDivisions;
+          var sina = Mathf.Sin(angle);
+          var cosa = Mathf.Cos(angle);
+          var startVector = sina * startUp - cosa * startRight;
+          visibleVertices.Add(start + startVector * outer.lipRadius);
+          visibleNormals.Add(startVector);
+          var endVector = sina * endUp - cosa * endRight;
+          visibleVertices.Add(end + endVector * outer.lipRadius);
+          visibleNormals.Add(endVector);
+        }
+
+        AddQuadIndices(collisionIndices, collisionVertices.Count);
+
+        collisionVertices.Add(end + endUp * outer.railHeight);
+        collisionVertices.Add(end);
+        collisionVertices.Add(start + startUp * outer.railHeight);
+        collisionVertices.Add(start);
     }
 
-    public void Populate (Mesh mesh) {
-      mesh.Clear();
-      mesh.SetVertices(vertices);
-      mesh.SetNormals(normals);
-      mesh.SetIndices(indices, MeshTopology.Triangles, 0);
+    public void Populate (Mesh visibleMesh, Mesh collisionMesh) {
+      visibleMesh.Clear();
+      visibleMesh.SetVertices(visibleVertices);
+      visibleMesh.SetNormals(visibleNormals);
+      visibleMesh.SetIndices(visibleIndices, MeshTopology.Triangles, 0);
+
+      collisionMesh.Clear();
+      collisionMesh.SetVertices(collisionVertices);
+      collisionMesh.SetIndices(collisionIndices, MeshTopology.Triangles, 0);
     }
   }
 }

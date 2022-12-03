@@ -11,8 +11,8 @@ public class Platform : Ramp {
     return new Bounds(new Vector3(0.0f, -extents.y, 0.0f), size);
   }
 
-  protected override void PopulateMesh (Mesh mesh) {
-    new MeshBuilder(this)
+  protected override void PopulateMeshBuilder (MeshBuilder builder) {
+    builder
       .AddQuads(
         new Vector3(-lipExtents.x, -size.y, -lipExtents.z),
         new Vector3(lipExtents.x, -size.y, -lipExtents.z),
@@ -52,8 +52,7 @@ public class Platform : Ramp {
         new Vector3(-extents.x, 0.0f, -extents.z), Vector3.up,
         new Vector3(-extents.x, 0.0f, extents.z), Vector3.up,
         new Vector3(extents.x, 0.0f, extents.z), Vector3.up,
-        new Vector3(extents.x, 0.0f, -extents.z), Vector3.up)
-      .Populate(mesh);
+        new Vector3(extents.x, 0.0f, -extents.z), Vector3.up);
   }
 
   protected override void PopulateCutouts (List<Cutout> cutouts) {
