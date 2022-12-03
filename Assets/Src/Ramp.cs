@@ -5,8 +5,8 @@ using UnityEngine;
 
 [ExecuteInEditMode]
 public abstract class Ramp : MonoBehaviour {
-  public float railWidth = 0.1f;
-  public float railHeight = 0.1f;
+  public float lipRadius = 0.1f;
+  public int lipDivisions = 5;
 
   Material material;
   Bounds? lastRebuildBounds;
@@ -16,8 +16,12 @@ public abstract class Ramp : MonoBehaviour {
     if (TryGetComponent<MeshRenderer>(out var meshRenderer)) meshRenderer.material = material;
   }
 
-  void Awake () {
+  void OnEnable () {
     if (Application.isEditor) EditorApplication.update += OnUpdate;
+  }
+
+  void OnDisable () {
+    if (Application.isEditor) EditorApplication.update -= OnUpdate;
   }
 
   void OnValidate () {
@@ -62,7 +66,7 @@ public abstract class Ramp : MonoBehaviour {
 
   void OnUpdate () {
     if (transform.hasChanged) {
-      RebuildOverlapping();
+      Regenerate();
       transform.hasChanged = false;
     }
   }
@@ -86,7 +90,7 @@ public abstract class Ramp : MonoBehaviour {
 
   void RebuildOverlapping (Bounds bounds) {
     var colliders = Physics.OverlapBox(
-      bounds.center, bounds.extents, Quaternion.identity, gameObject.layer, QueryTriggerInteraction.Ignore);
+      bounds.center, bounds.extents, Quaternion.identity, 1 << gameObject.layer, QueryTriggerInteraction.Ignore);
     foreach (var collider in colliders) {
       var ramp = collider.GetComponent<Ramp>();
       if (ramp && ramp != this) ramp.Rebuild();
@@ -95,7 +99,7 @@ public abstract class Ramp : MonoBehaviour {
 
   protected Bounds GetWorldBounds () {
     var bounds = GetLocalBounds();
-    bounds.Expand(Mathf.Max(railWidth, railHeight));
+    bounds.Expand(lipRadius * 2.0f);
     return transform.TransformBounds(bounds);
   }
 
@@ -107,42 +111,40 @@ public abstract class Ramp : MonoBehaviour {
     public Vector3 start;
     public Vector3 end;
 
+    public Vector3 dir => (end - start).normalized;
+
     public Cutout (Vector3 start, Vector3 end) {
       this.start = start;
       this.end = end;
     }
 
-    public void Transform (Transform src, Transform dest) {
-      start = dest.InverseTransformPoint(src.TransformPoint(start));
-      end = dest.InverseTransformPoint(src.TransformPoint(end));
+    public Cutout Transform (Transform src, Transform dest) {
+      return new Cutout(dest.InverseTransformPoint(src.TransformPoint(start)),
+        dest.InverseTransformPoint(src.TransformPoint(end)));
     }
   }
 
   protected abstract void PopulateCutouts (List<Cutout> cutouts);
 
-  protected static void PopulateMesh (Mesh mesh, MeshTopology meshTopology, Vector3[] vertices) {
-    mesh.SetVertices(vertices);
-    mesh.SetIndices(Enumerable.Range(0, vertices.Length).ToArray(), meshTopology, 0);
-    mesh.RecalculateNormals();
-  }
-
   protected class MeshBuilder {
+    Ramp outer;
     List<Cutout> cutouts = new List<Cutout>();
     List<Vector3> vertices = new List<Vector3>();
     List<Vector3> normals = new List<Vector3>();
     List<int> indices = new List<int>();
 
     public MeshBuilder (Ramp outer) {
+      this.outer = outer;
       var bounds = outer.GetWorldBounds();
       var colliders = Physics.OverlapBox(
-        bounds.center, bounds.extents, Quaternion.identity, outer.gameObject.layer, QueryTriggerInteraction.Ignore);
+        bounds.center, bounds.extents, Quaternion.identity, 1 << outer.gameObject.layer, QueryTriggerInteraction.Ignore);
       foreach (var collider in colliders) {
         var ramp = collider.GetComponent<Ramp>();
         if (ramp && ramp != outer) {
           var previousCount = cutouts.Count;
           ramp.PopulateCutouts(cutouts);
           for (var ii = previousCount; ii < cutouts.Count; ++ii) {
-            cutouts[ii].Transform(ramp.transform, outer.transform);
+            cutouts[ii] = cutouts[ii].Transform(ramp.transform, outer.transform);
           }
         }
       }
@@ -172,11 +174,68 @@ public abstract class Ramp : MonoBehaviour {
       return this;
     }
 
-    public MeshBuilder AddRail (bool loop, params Vector3[] vertices) {
+    public MeshBuilder AddLip (bool loop, params Vector3[] waypoints) {
+      for (int ii = 0, ll = loop ? waypoints.Length : waypoints.Length - 2; ii < ll; ii += 2) {
+        AddSegment(waypoints[ii], waypoints[ii + 1],
+          waypoints[(ii + 2) % waypoints.Length], waypoints[(ii + 3) % waypoints.Length]);
+      }
       return this;
     }
 
+    void AddSegment (Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp) {
+      var forward = end - start;
+      var length = forward.magnitude;
+      var dir = forward / length;
+
+      foreach (var cutout in cutouts) {
+          const float kSmall = 0.001f;
+          if (Vector3.Dot(dir, cutout.dir) > -1.0f + kSmall) continue; // dir must be exactly opposed
+          var startProj = Vector3.Dot(cutout.start - start, dir);
+          if (startProj < kSmall) continue;
+          var endProj = Vector3.Dot(cutout.end - start, dir);
+          if (endProj > length - kSmall) continue;
+          var startPoint = start + dir * startProj;
+          var endPoint = start + dir * endProj;
+          if (Vector3.Distance(startPoint, cutout.start) > outer.lipRadius ||
+              Vector3.Distance(endPoint, cutout.end) > outer.lipRadius) continue;
+          if (endProj > 0.0f) {
+            AddSegment(start, startUp, endPoint, Vector3.Lerp(startUp, endUp, endProj / length).normalized);
+          }
+          if (startProj < length) {
+            AddSegment(startPoint, Vector3.Lerp(startUp, endUp, startProj / length).normalized, end, endUp);
+          }
+          return;
+        }
+
+        var indexBase = vertices.Count;
+        var startRight = Vector3.Cross(startUp, dir).normalized;
+        var endRight = Vector3.Cross(endUp, dir).normalized;
+        for (var ii = 0; ii <= outer.lipDivisions; ++ii) {
+          var angle = ii * Mathf.PI / outer.lipDivisions;
+          var sina = Mathf.Sin(angle);
+          var cosa = Mathf.Cos(angle);
+          var startVector = sina * startUp - cosa * startRight;
+          vertices.Add(start + startVector * outer.lipRadius);
+          normals.Add(startVector);
+          var endVector = sina * endUp - cosa * endRight;
+          vertices.Add(end + endVector * outer.lipRadius);
+          normals.Add(endVector);
+        }
+
+        for (var ii = 0; ii < outer.lipDivisions; ++ii) {
+          var firstIndex = indexBase + ii * 2;
+          indices.Add(firstIndex);
+          indices.Add(firstIndex + 1);
+          indices.Add(firstIndex + 3);
+
+          indices.Add(firstIndex + 3);
+          indices.Add(firstIndex + 2);
+          indices.Add(firstIndex);
+        }
+    }
+
     public void Populate (Mesh mesh) {
+      mesh.Clear();
       mesh.SetVertices(vertices);
       mesh.SetNormals(normals);
       mesh.SetIndices(indices, MeshTopology.Triangles, 0);
