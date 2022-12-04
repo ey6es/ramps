@@ -49,6 +49,7 @@ public abstract class Ramp : MonoBehaviour {
     var builder = new MeshBuilder(this);
     PopulateMeshBuilder(builder);
     builder.Populate(meshFilter.sharedMesh, meshCollider.sharedMesh);
+    meshCollider.sharedMesh = meshCollider.sharedMesh; // force reload
     meshFilter.sharedMesh.RecalculateBounds();
     meshCollider.sharedMesh.RecalculateBounds();
 
@@ -114,6 +115,7 @@ public abstract class Ramp : MonoBehaviour {
     public Vector3 start;
     public Vector3 end;
 
+    public float length => (end - start).magnitude;
     public Vector3 dir => (end - start).normalized;
 
     public Cutout (Vector3 start, Vector3 end) {
@@ -192,38 +194,61 @@ public abstract class Ramp : MonoBehaviour {
       return this;
     }
 
-    public MeshBuilder AddLip (bool loop, params Vector3[] waypoints) {
-      for (int ii = 0, ll = loop ? waypoints.Length : waypoints.Length - 2; ii < ll; ii += 2) {
-        AddSegment(waypoints[ii], waypoints[ii + 1],
-          waypoints[(ii + 2) % waypoints.Length], waypoints[(ii + 3) % waypoints.Length]);
+    public MeshBuilder AddLipLoop (params Vector3[] waypoints) {
+      for (var ii = 0; ii < waypoints.Length; ii += 2) {
+        AddLipLoopSegment(
+          waypoints[ii], waypoints[ii + 1],
+          waypoints[(ii + 2) % waypoints.Length], waypoints[(ii + 3) % waypoints.Length],
+          waypoints[(ii + 4) % waypoints.Length], waypoints[(ii + 5) % waypoints.Length]);
       }
       return this;
     }
 
-    void AddSegment (Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp) {
+    void AddLipLoopSegment (Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp, Vector3 next, Vector3 nextUp) {
       var forward = end - start;
       var length = forward.magnitude;
       var dir = forward / length;
 
+      const float kSmall = 0.001f;
       foreach (var cutout in cutouts) {
-          const float kSmall = 0.001f;
-          if (Vector3.Dot(dir, cutout.dir) > -1.0f + kSmall) continue; // dir must be exactly opposed
+          var dotProduct = Vector3.Dot(dir, cutout.dir);
+          if (Mathf.Abs(dotProduct) < kSmall) {
+            var proj = Vector3.Dot(end - cutout.start, cutout.dir);
+            if (proj >= 0.0f && proj <= cutout.length) {
+              var point = cutout.start + proj * cutout.dir;
+              if (Vector3.Distance(end, point) <= outer.lipRadius) {
+                next = end + (proj > cutout.length - outer.lipRadius ? GetNextCutoutDir(cutout, dir) : cutout.dir);
+                nextUp = endUp;
+              }
+            }
+          }
+          if (dotProduct > -1.0f + kSmall) continue; // dir must be exactly opposed
+
           var startProj = Vector3.Dot(cutout.start - start, dir);
           if (startProj < kSmall) continue;
+
           var endProj = Vector3.Dot(cutout.end - start, dir);
           if (endProj > length - kSmall) continue;
+
           var startPoint = start + dir * startProj;
           var endPoint = start + dir * endProj;
           if (Vector3.Distance(startPoint, cutout.start) > outer.lipRadius ||
               Vector3.Distance(endPoint, cutout.end) > outer.lipRadius) continue;
           if (endProj > 0.0f) {
-            AddSegment(start, startUp, endPoint, Vector3.Lerp(startUp, endUp, endProj / length).normalized);
+            var endPointUp = Vector3.Lerp(startUp, endUp, endProj / length).normalized;
+            AddLipLoopSegment(
+              start, startUp, endPoint, endPointUp,
+              endPoint + GetNextCutoutDir(cutout, Vector3.Cross(dir, endPointUp)), endPointUp);
           }
           if (startProj < length) {
-            AddSegment(startPoint, Vector3.Lerp(startUp, endUp, startProj / length).normalized, end, endUp);
+            AddLipLoopSegment(
+              startPoint, Vector3.Lerp(startUp, endUp, startProj / length).normalized, end, endUp, next, nextUp);
           }
           return;
         }
+
+        var nextDir = (next - end).normalized;
+        var straightJoint = Vector3.Dot(dir, nextDir) > 1.0f - kSmall;
 
         AddIndices AddQuadIndices = (List<int> indices, int firstIndex) => {
           indices.Add(firstIndex);
@@ -237,18 +262,60 @@ public abstract class Ramp : MonoBehaviour {
         for (var ii = 0; ii < outer.lipDivisions; ++ii) {
           AddQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
         }
+        var innerStart = start + dir * outer.lipRadius;
+        var innerEnd = end + dir * outer.lipRadius * (straightJoint ? 1 : -1);
         var startRight = Vector3.Cross(startUp, dir).normalized;
         var endRight = Vector3.Cross(endUp, dir).normalized;
         for (var ii = 0; ii <= outer.lipDivisions; ++ii) {
           var angle = ii * Mathf.PI / outer.lipDivisions;
           var sina = Mathf.Sin(angle);
           var cosa = Mathf.Cos(angle);
+
           var startVector = sina * startUp - cosa * startRight;
-          visibleVertices.Add(start + startVector * outer.lipRadius);
+          visibleVertices.Add(innerStart + startVector * outer.lipRadius);
           visibleNormals.Add(startVector);
+
           var endVector = sina * endUp - cosa * endRight;
-          visibleVertices.Add(end + endVector * outer.lipRadius);
+          visibleVertices.Add(innerEnd + endVector * outer.lipRadius);
           visibleNormals.Add(endVector);
+        }
+
+        if (!straightJoint) {
+          var innerNext = end + nextDir * outer.lipRadius;
+          new Plane(nextDir, innerNext).Raycast(new Ray(innerEnd, endRight), out var enter);
+          var center = innerEnd + enter * endRight;
+          var endVector = innerEnd - center;
+          var elbowAngle = Vector3.SignedAngle(endVector, innerNext - center, endUp);
+
+          for (var ii = 0; ii < outer.lipDivisions; ++ii) {
+            for (var jj = 0; jj < outer.lipDivisions; ++jj) {
+              var baseIndex = visibleVertices.Count + ii * (outer.lipDivisions + 1) + jj;
+
+              visibleIndices.Add(baseIndex);
+              visibleIndices.Add(baseIndex + outer.lipDivisions + 1);
+              visibleIndices.Add(baseIndex + outer.lipDivisions + 2);
+
+              visibleIndices.Add(baseIndex);
+              visibleIndices.Add(baseIndex + outer.lipDivisions + 2);
+              visibleIndices.Add(baseIndex + 1);
+            }
+          }
+
+          for (var ii = 0; ii <= outer.lipDivisions; ++ii) {
+            var elbowVector = Quaternion.AngleAxis(ii * elbowAngle / outer.lipDivisions, endUp) * endVector;
+            var point = center + elbowVector;
+            var right = elbowVector.normalized * Mathf.Sign(-elbowAngle);
+
+            for (var jj = 0; jj <= outer.lipDivisions; ++jj) {
+              var angle = jj * Mathf.PI / outer.lipDivisions;
+              var sina = Mathf.Sin(angle);
+              var cosa = Mathf.Cos(angle);
+
+              var vector = sina * endUp - cosa * right;
+              visibleVertices.Add(point + vector * outer.lipRadius);
+              visibleNormals.Add(vector);
+            }
+          }
         }
 
         AddQuadIndices(collisionIndices, collisionVertices.Count);
@@ -257,6 +324,15 @@ public abstract class Ramp : MonoBehaviour {
         collisionVertices.Add(end);
         collisionVertices.Add(start + startUp * outer.railHeight);
         collisionVertices.Add(start);
+    }
+
+    Vector3 GetNextCutoutDir (Cutout cutout, Vector3 defaultDir) {
+      foreach (var other in cutouts) {
+        if (Vector3.Distance(cutout.end, other.start) <= outer.lipRadius) {
+          return other.dir;
+        }
+      }
+      return defaultDir;
     }
 
     public void Populate (Mesh visibleMesh, Mesh collisionMesh) {

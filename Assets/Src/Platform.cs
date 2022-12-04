@@ -43,12 +43,12 @@ public class Platform : Ramp {
         new Vector3(-lipExtents.x, 0.0f, lipExtents.z),
         new Vector3(lipExtents.x, 0.0f, lipExtents.z),
         new Vector3(lipExtents.x, 0.0f, -lipExtents.z))
-      .AddLip(true,
+      .AddLipLoop(
         new Vector3(-extents.x, -size.y, -extents.z), Vector3.down,
         new Vector3(extents.x, -size.y, -extents.z), Vector3.down,
         new Vector3(extents.x, -size.y, extents.z), Vector3.down,
         new Vector3(-extents.x, -size.y, extents.z), Vector3.down) 
-      .AddLip(true,
+      .AddLipLoop(
         new Vector3(-extents.x, 0.0f, -extents.z), Vector3.up,
         new Vector3(-extents.x, 0.0f, extents.z), Vector3.up,
         new Vector3(extents.x, 0.0f, extents.z), Vector3.up,
