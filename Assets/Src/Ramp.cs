@@ -6,11 +6,13 @@ using UnityEngine;
 [ExecuteInEditMode]
 public abstract class Ramp : MonoBehaviour {
   public float lipRadius = 0.1f;
-  public int lipDivisions = 5;
+  public int lipDetail = 16;
   public float railHeight = 1.0f;
 
   Material material;
   Bounds? lastRebuildBounds;
+
+  int lipDivisions => (int)(lipRadius * Mathf.PI * lipDetail);
 
   public void SetMaterial (Material material) {
     this.material = material;
@@ -129,18 +131,18 @@ public abstract class Ramp : MonoBehaviour {
     }
   }
 
-  protected abstract void PopulateCutouts (List<Cutout> cutouts);
+  protected virtual void PopulateCutouts (List<Cutout> cutouts) {
+    // nothing by default
+  }
 
   protected class MeshBuilder {
     Ramp outer;
     List<Cutout> cutouts = new List<Cutout>();
     List<Vector3> visibleVertices = new List<Vector3>();
-    List<Vector3> visibleNormals = new List<Vector3>();
+    List<Vector3> normals = new List<Vector3>();
     List<int> visibleIndices = new List<int>();
     List<Vector3> collisionVertices = new List<Vector3>();
     List<int> collisionIndices = new List<int>();
-
-    delegate void AddIndices (List<int> indices, int firstIndex);
 
     public MeshBuilder (Ramp outer) {
       this.outer = outer;
@@ -159,19 +161,10 @@ public abstract class Ramp : MonoBehaviour {
       }
     }
 
-    public MeshBuilder AddQuads (params Vector3[] quads) {
-      AddIndices AddQuadIndices = (List<int> indices, int firstIndex) => {
-        indices.Add(firstIndex);
-        indices.Add(firstIndex + 1);
-        indices.Add(firstIndex + 2);
-
-        indices.Add(firstIndex + 2);
-        indices.Add(firstIndex + 3);
-        indices.Add(firstIndex);
-      };
-      for (var ii = 0; ii < quads.Length; ) {
-        var (v0, v1, v2, v3) = (quads[ii++], quads[ii++], quads[ii++], quads[ii++]);
-        AddQuadIndices(visibleIndices, visibleVertices.Count);
+    public MeshBuilder AddQuads (params Vector3[] quadVertices) {
+      for (var ii = 0; ii < quadVertices.Length; ) {
+        var (v0, v1, v2, v3) = (quadVertices[ii++], quadVertices[ii++], quadVertices[ii++], quadVertices[ii++]);
+        AddClockwiseQuadIndices(visibleIndices, visibleVertices.Count);
 
         visibleVertices.Add(v0);
         visibleVertices.Add(v1);
@@ -179,18 +172,33 @@ public abstract class Ramp : MonoBehaviour {
         visibleVertices.Add(v3);
 
         var normal = Vector3.Cross(v1 - v0, v3 - v0).normalized;
-        visibleNormals.Add(normal);
-        visibleNormals.Add(normal);
-        visibleNormals.Add(normal);
-        visibleNormals.Add(normal);
+        normals.Add(normal);
+        normals.Add(normal);
+        normals.Add(normal);
+        normals.Add(normal);
 
-        AddQuadIndices(collisionIndices, collisionVertices.Count);
+        AddClockwiseQuadIndices(collisionIndices, collisionVertices.Count);
 
         collisionVertices.Add(v0);
         collisionVertices.Add(v1);
         collisionVertices.Add(v2);
         collisionVertices.Add(v3);
       }
+      return this;
+    }
+
+    public MeshBuilder AddQuadStrip (params Vector3[] quadVerticesAndNormals) {
+      for (int ii = 0, nn = (quadVerticesAndNormals.Length - 4) / 4; ii < nn; ++ii) {
+        AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
+        AddParallelQuadIndices(collisionIndices, collisionVertices.Count + ii * 2);
+      }
+      for (var ii = 0; ii < quadVerticesAndNormals.Length; ii += 2) {
+        var vertex = quadVerticesAndNormals[ii];
+        visibleVertices.Add(vertex);
+        collisionVertices.Add(vertex);
+        normals.Add(quadVerticesAndNormals[ii + 1]);
+      }
+
       return this;
     }
 
@@ -257,17 +265,8 @@ public abstract class Ramp : MonoBehaviour {
           }
         }
 
-        AddIndices AddQuadIndices = (List<int> indices, int firstIndex) => {
-          indices.Add(firstIndex);
-          indices.Add(firstIndex + 1);
-          indices.Add(firstIndex + 3);
-
-          indices.Add(firstIndex + 3);
-          indices.Add(firstIndex + 2);
-          indices.Add(firstIndex);
-        };
         for (var ii = 0; ii < outer.lipDivisions; ++ii) {
-          AddQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
+          AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
         }
         var startRight = Vector3.Cross(startUp, dir).normalized;
         var endRight = Vector3.Cross(endUp, dir).normalized;
@@ -282,21 +281,41 @@ public abstract class Ramp : MonoBehaviour {
           var startRay = new Ray(start + startVector * outer.lipRadius, dir);
           startPlane.Raycast(startRay, out var startEnter);
           visibleVertices.Add(startRay.GetPoint(startEnter));
-          visibleNormals.Add(startVector);
+          normals.Add(startVector);
 
           var endVector = sina * endUp - cosa * endRight;
           var endRay = new Ray(end + endVector * outer.lipRadius, dir);
           endPlane.Raycast(endRay, out var endEnter);
           visibleVertices.Add(endRay.GetPoint(endEnter));
-          visibleNormals.Add(endVector);
+          normals.Add(endVector);
         }
 
-        AddQuadIndices(collisionIndices, collisionVertices.Count);
+        AddParallelQuadIndices(collisionIndices, collisionVertices.Count);
 
         collisionVertices.Add(end + endUp * outer.railHeight);
         collisionVertices.Add(end);
         collisionVertices.Add(start + startUp * outer.railHeight);
         collisionVertices.Add(start);
+    }
+
+    void AddClockwiseQuadIndices (List<int> indices, int firstIndex) {
+      indices.Add(firstIndex);
+      indices.Add(firstIndex + 1);
+      indices.Add(firstIndex + 2);
+
+      indices.Add(firstIndex + 2);
+      indices.Add(firstIndex + 3);
+      indices.Add(firstIndex);
+    }
+
+    void AddParallelQuadIndices (List<int> indices, int firstIndex) {
+      indices.Add(firstIndex);
+      indices.Add(firstIndex + 1);
+      indices.Add(firstIndex + 3);
+
+      indices.Add(firstIndex + 3);
+      indices.Add(firstIndex + 2);
+      indices.Add(firstIndex);
     }
 
     Vector3 GetPrevCutoutDir (Cutout cutout, Vector3 defaultDir) {
@@ -316,7 +335,7 @@ public abstract class Ramp : MonoBehaviour {
     public void Populate (Mesh visibleMesh, Mesh collisionMesh) {
       visibleMesh.Clear();
       visibleMesh.SetVertices(visibleVertices);
-      visibleMesh.SetNormals(visibleNormals);
+      visibleMesh.SetNormals(normals);
       visibleMesh.SetIndices(visibleIndices, MeshTopology.Triangles, 0);
 
       collisionMesh.Clear();

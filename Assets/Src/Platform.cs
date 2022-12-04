@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class Platform : Ramp {
-  public Vector3 size = new Vector3(20.0f, 0.25f, 20.0f);
+  public Vector3 size = new Vector3(20.0f, 1.0f, 20.0f);
   
   Vector3 extents => size * 0.5f;
   Vector3 lipExtents => extents + new Vector3(lipRadius, 0.0f, lipRadius);
