@@ -213,17 +213,47 @@ public abstract class Ramp : MonoBehaviour {
     }
 
     public MeshBuilder AddCurvedLip (params Vector3[] verticesAndUps) {
-      for (int ii = 0, nn = verticesAndUps.Length - 2; ii < nn; ii += 2) {
-        AddLipSegment(
-          ii == 0 ? null : verticesAndUps[ii - 2],
-          verticesAndUps[ii], verticesAndUps[ii + 1], verticesAndUps[ii + 2], verticesAndUps[ii + 3],
-          ii == nn - 2 ? null : verticesAndUps[ii + 4], true);
+      AddLipSegment(null, verticesAndUps[0], verticesAndUps[1], verticesAndUps[2], verticesAndUps[3], verticesAndUps[4]);
+      var ll = verticesAndUps.Length - 4;
+      AddLipSegment(
+        verticesAndUps[ll - 2],
+        verticesAndUps[ll], verticesAndUps[ll + 1], verticesAndUps[ll + 2], verticesAndUps[ll + 3],
+        null);
+      
+      var lipDivisions = outer.lipDivisions;
+      for (int ii = 0, nn = verticesAndUps.Length / 2 - 3; ii < nn; ++ii) {
+        for (var jj = 0; jj < lipDivisions; ++jj) {
+          var baseIndex = visibleVertices.Count + ii * (lipDivisions + 1) + jj;
+
+          visibleIndices.Add(baseIndex);
+          visibleIndices.Add(baseIndex + lipDivisions + 1);
+          visibleIndices.Add(baseIndex + lipDivisions + 2);
+
+          visibleIndices.Add(baseIndex + lipDivisions + 2);
+          visibleIndices.Add(baseIndex + 1);
+          visibleIndices.Add(baseIndex);
+        }
+        AddParallelQuadIndices(collisionIndices, collisionVertices.Count + ii * 2);
+      }
+      for (var ii = 2; ii <= ll; ii += 2) {
+        var (vertex, up) = (verticesAndUps[ii], verticesAndUps[ii + 1]);
+        var right = Vector3.Cross(up, verticesAndUps[ii + 2] - vertex).normalized;
+
+        for (var jj = 0; jj <= lipDivisions; ++jj) {
+          var angle = jj * Mathf.PI / lipDivisions;
+          var normal = Mathf.Sin(angle) * up - Mathf.Cos(angle) * right;
+
+          visibleVertices.Add(vertex + normal * outer.lipRadius);
+          normals.Add(normal);
+        }
+
+        collisionVertices.Add(vertex);
+        collisionVertices.Add(vertex + up * outer.railHeight);
       }
       return this;
     }
 
-    void AddLipSegment (
-        Vector3? prev, Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp, Vector3? next, bool curved = false) {
+    void AddLipSegment (Vector3? prev, Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp, Vector3? next) {
       var forward = end - start;
       var length = forward.magnitude;
       var dir = forward / length;
@@ -274,15 +304,16 @@ public abstract class Ramp : MonoBehaviour {
           }
         }
 
-        for (var ii = 0; ii < outer.lipDivisions; ++ii) {
+        var lipDivisions = outer.lipDivisions;
+        for (var ii = 0; ii < lipDivisions; ++ii) {
           AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
         }
         var startRight = Vector3.Cross(startUp, dir).normalized;
         var endRight = Vector3.Cross(endUp, dir).normalized;
         var startPlane = new Plane(prev.HasValue ? ((start - prev.Value).normalized + dir).normalized : dir, start);
         var endPlane = new Plane(next.HasValue ? (dir + (next.Value - end).normalized).normalized : dir, end);
-        for (var ii = 0; ii <= outer.lipDivisions; ++ii) {
-          var angle = ii * Mathf.PI / outer.lipDivisions;
+        for (var ii = 0; ii <= lipDivisions; ++ii) {
+          var angle = ii * Mathf.PI / lipDivisions;
           var sina = Mathf.Sin(angle);
           var cosa = Mathf.Cos(angle);
 
