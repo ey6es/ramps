@@ -12,7 +12,7 @@ public abstract class Ramp : MonoBehaviour {
   Material material;
   Bounds? lastRebuildBounds;
 
-  int lipDivisions => (int)(lipRadius * Mathf.PI * lipDetail);
+  int lipDivisions => System.Math.Max(1, (int)(lipRadius * Mathf.PI * lipDetail));
 
   public void SetMaterial (Material material) {
     this.material = material;
@@ -47,14 +47,13 @@ public abstract class Ramp : MonoBehaviour {
       meshCollider = gameObject.AddComponent<MeshCollider>();
       meshCollider.sharedMesh = new Mesh();
     }
-
     var builder = new MeshBuilder(this);
     PopulateMeshBuilder(builder);
     builder.Populate(meshFilter.sharedMesh, meshCollider.sharedMesh);
-    meshCollider.sharedMesh = meshCollider.sharedMesh; // force reload
     meshFilter.sharedMesh.RecalculateBounds();
     meshCollider.sharedMesh.RecalculateBounds();
-
+    meshCollider.sharedMesh = meshCollider.sharedMesh; // force reload
+    
     var meshRenderer = GetComponent<MeshRenderer>();
     if (!meshRenderer) {
       meshRenderer = gameObject.AddComponent<MeshRenderer>();
@@ -202,19 +201,29 @@ public abstract class Ramp : MonoBehaviour {
       return this;
     }
 
-    public MeshBuilder AddLipLoop (params Vector3[] waypoints) {
-      for (var ii = 0; ii < waypoints.Length; ii += 2) {
-        AddLipLoopSegment(
-          waypoints[(ii + waypoints.Length - 2) % waypoints.Length],
-          waypoints[ii], waypoints[ii + 1],
-          waypoints[(ii + 2) % waypoints.Length], waypoints[(ii + 3) % waypoints.Length],
-          waypoints[(ii + 4) % waypoints.Length]);
+    public MeshBuilder AddLipLoop (params Vector3[] verticesAndUps) {
+      for (var ii = 0; ii < verticesAndUps.Length; ii += 2) {
+        AddLipSegment(
+          verticesAndUps[(ii + verticesAndUps.Length - 2) % verticesAndUps.Length],
+          verticesAndUps[ii], verticesAndUps[ii + 1],
+          verticesAndUps[(ii + 2) % verticesAndUps.Length], verticesAndUps[(ii + 3) % verticesAndUps.Length],
+          verticesAndUps[(ii + 4) % verticesAndUps.Length]);
       }
       return this;
     }
 
-    void AddLipLoopSegment (
-        Vector3 prev, Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp, Vector3 next) {
+    public MeshBuilder AddCurvedLip (params Vector3[] verticesAndUps) {
+      for (int ii = 0, nn = verticesAndUps.Length - 2; ii < nn; ii += 2) {
+        AddLipSegment(
+          ii == 0 ? null : verticesAndUps[ii - 2],
+          verticesAndUps[ii], verticesAndUps[ii + 1], verticesAndUps[ii + 2], verticesAndUps[ii + 3],
+          ii == nn - 2 ? null : verticesAndUps[ii + 4], true);
+      }
+      return this;
+    }
+
+    void AddLipSegment (
+        Vector3? prev, Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp, Vector3? next, bool curved = false) {
       var forward = end - start;
       var length = forward.magnitude;
       var dir = forward / length;
@@ -226,15 +235,15 @@ public abstract class Ramp : MonoBehaviour {
             var endProj = Vector3.Dot(end - cutout.start, cutout.dir);
             if (endProj >= 0.0f && endProj <= cutout.length) {
               var point = cutout.start + endProj * cutout.dir;
-              if (Vector3.Distance(end, point) <= outer.lipRadius) {
-                next = end + (endProj > cutout.length - outer.lipRadius ? GetNextCutoutDir(cutout, dir) : cutout.dir);
+              if (Vector3.Distance(end, point) <= kSmall) {
+                next = end + (endProj > cutout.length - kSmall ? GetNextCutoutDir(cutout, dir) : cutout.dir);
               }
             }
             var startProj = Vector3.Dot(start - cutout.start, cutout.dir);
             if (startProj >= 0.0f && startProj <= cutout.length) {
               var point = cutout.start + startProj * cutout.dir;
-              if (Vector3.Distance(start, point) <= outer.lipRadius) {
-                prev = start - (startProj < outer.lipRadius ? GetPrevCutoutDir(cutout, dir) : cutout.dir);
+              if (Vector3.Distance(start, point) <= kSmall) {
+                prev = start - (startProj < kSmall ? GetPrevCutoutDir(cutout, dir) : cutout.dir);
               }
             }
           } else {
@@ -247,17 +256,17 @@ public abstract class Ramp : MonoBehaviour {
 
             var startPoint = start + dir * startProj;
             var endPoint = start + dir * endProj;
-            if (Vector3.Distance(startPoint, cutout.start) > outer.lipRadius ||
-                Vector3.Distance(endPoint, cutout.end) > outer.lipRadius) continue;
+            if (Vector3.Distance(startPoint, cutout.start) > kSmall ||
+                Vector3.Distance(endPoint, cutout.end) > kSmall) continue;
             if (endProj > 0.0f) {
               var endPointUp = Vector3.Lerp(startUp, endUp, endProj / length).normalized;
-              AddLipLoopSegment(
+              AddLipSegment(
                 prev, start, startUp, endPoint, endPointUp,
                 endPoint + GetNextCutoutDir(cutout, Vector3.Cross(dir, endPointUp)));
             }
             if (startProj < length) {
               var startPointUp = Vector3.Lerp(startUp, endUp, startProj / length).normalized;
-              AddLipLoopSegment(
+              AddLipSegment(
                 startPoint - GetPrevCutoutDir(cutout, Vector3.Cross(startPointUp, dir)),
                 startPoint, startPointUp, end, endUp, next);
             }
@@ -270,8 +279,8 @@ public abstract class Ramp : MonoBehaviour {
         }
         var startRight = Vector3.Cross(startUp, dir).normalized;
         var endRight = Vector3.Cross(endUp, dir).normalized;
-        var startPlane = new Plane(((start - prev).normalized + dir).normalized, start);
-        var endPlane = new Plane((dir + (next - end).normalized).normalized, end);
+        var startPlane = new Plane(prev.HasValue ? ((start - prev.Value).normalized + dir).normalized : dir, start);
+        var endPlane = new Plane(next.HasValue ? (dir + (next.Value - end).normalized).normalized : dir, end);
         for (var ii = 0; ii <= outer.lipDivisions; ++ii) {
           var angle = ii * Mathf.PI / outer.lipDivisions;
           var sina = Mathf.Sin(angle);
