@@ -213,12 +213,9 @@ public abstract class Ramp : MonoBehaviour {
     }
 
     public MeshBuilder AddCurvedLip (params Vector3[] verticesAndUps) {
-      AddLipSegment(null, verticesAndUps[0], verticesAndUps[1], verticesAndUps[2], verticesAndUps[3], verticesAndUps[4]);
+      AddLipSegment(null, verticesAndUps[0], verticesAndUps[1], verticesAndUps[2], verticesAndUps[3], null);
       var ll = verticesAndUps.Length - 4;
-      AddLipSegment(
-        verticesAndUps[ll - 2],
-        verticesAndUps[ll], verticesAndUps[ll + 1], verticesAndUps[ll + 2], verticesAndUps[ll + 3],
-        null);
+      AddLipSegment(null, verticesAndUps[ll], verticesAndUps[ll + 1], verticesAndUps[ll + 2], verticesAndUps[ll + 3], null);
       
       var lipDivisions = outer.lipDivisions;
       for (int ii = 0, nn = verticesAndUps.Length / 2 - 3; ii < nn; ++ii) {
@@ -330,12 +327,47 @@ public abstract class Ramp : MonoBehaviour {
           normals.Add(endVector);
         }
 
+        if (!prev.HasValue) AddLipCap(start, -dir, startUp);
+        if (!next.HasValue) AddLipCap(end, dir, endUp);
+
         AddParallelQuadIndices(collisionIndices, collisionVertices.Count);
 
         collisionVertices.Add(end + endUp * outer.railHeight);
         collisionVertices.Add(end);
         collisionVertices.Add(start + startUp * outer.railHeight);
         collisionVertices.Add(start);
+    }
+
+    void AddLipCap (Vector3 center, Vector3 forward, Vector3 up) {
+      var right = Vector3.Cross(up, forward).normalized;
+
+      var lipDivisions = outer.lipDivisions;
+      for (var ii = 0; ii < lipDivisions; ++ii) {
+        for (var jj = 0; jj < lipDivisions; ++jj) {
+          var baseIndex = visibleVertices.Count + ii * (lipDivisions + 1) + jj;
+
+          visibleIndices.Add(baseIndex);
+          visibleIndices.Add(baseIndex + 1);
+          visibleIndices.Add(baseIndex + lipDivisions + 1);
+
+          visibleIndices.Add(baseIndex + lipDivisions + 1);
+          visibleIndices.Add(baseIndex + 1);
+          visibleIndices.Add(baseIndex + lipDivisions + 2);
+        }
+      }
+
+      for (var ii = 0; ii <= lipDivisions; ++ii) {
+        var theta = ii * Mathf.PI * 0.5f / lipDivisions;
+        var rotatedUp = up * Mathf.Cos(theta) + forward * Mathf.Sin(theta);
+
+        for (var jj = 0; jj <= lipDivisions; ++jj) {
+          var phi = jj * Mathf.PI / lipDivisions;
+          var normal = Mathf.Sin(phi) * rotatedUp + Mathf.Cos(phi) * right;
+
+          visibleVertices.Add(center + normal * outer.lipRadius);
+          normals.Add(normal);
+        }
+      }
     }
 
     void AddClockwiseQuadIndices (List<int> indices, int firstIndex) {
