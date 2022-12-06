@@ -13,6 +13,11 @@ public class RampMenu : MonoBehaviour {
     CreateRamp<CylinderRamp>(menuCommand, "Cylinder Ramp");
   }
 
+  [MenuItem("GameObject/Ramp/Scale")]
+  static void CreateScaleRamp (MenuCommand menuCommand) {
+    CreateRamp<ScaleRamp>(menuCommand, "Scale Ramp");
+  }
+
   static void CreateRamp<T> (MenuCommand menuCommand, string name) where T : Ramp {
     var gameObject = new GameObject(name);
     gameObject.layer = LayerMask.NameToLayer("Ramp");

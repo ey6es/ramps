@@ -91,8 +91,8 @@ public class CylinderRamp : Ramp {
       .AddQuadStrip(bottomVerticesAndNormals.ToArray())
       .AddQuadStrip(leftVerticesAndNormals.ToArray())
       .AddQuadStrip(rightVerticesAndNormals.ToArray())
-      .AddCurvedLip(leftLipVerticesAndUps.ToArray())
-      .AddCurvedLip(rightLipVerticesAndUps.ToArray());
+      .AddContinuousLip(leftLipVerticesAndUps.ToArray())
+      .AddContinuousLip(rightLipVerticesAndUps.ToArray());
   }
 
   protected override void PopulateCutouts (List<Cutout> cutouts) {
