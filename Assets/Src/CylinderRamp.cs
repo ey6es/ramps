@@ -4,6 +4,7 @@ using UnityEngine;
 
 public class CylinderRamp : Ramp {
   public float width = 2.0f;
+  public float height = 0.5f;
   public float radius = 0.5f;
   public int angle = 180;
   public int detail = 16;
@@ -19,16 +20,19 @@ public class CylinderRamp : Ramp {
   protected override void PopulateMeshBuilder (MeshBuilder builder) {
     if (angle == 0) return;
 
-    var verticesAndNormals = new List<Vector3>();
-    var leftVerticesAndUps = new LinkedList<Vector3>();
-    var rightVerticesAndUps = new LinkedList<Vector3>();
+    var topVerticesAndNormals = new List<Vector3>();
+    var bottomVerticesAndNormals = new List<Vector3>();
+    var leftVerticesAndNormals = new List<Vector3>();
+    var rightVerticesAndNormals = new List<Vector3>();
+    var leftLipVerticesAndUps = new LinkedList<Vector3>();
+    var rightLipVerticesAndUps = new LinkedList<Vector3>();
 
     var leftX = -halfWidth - lipRadius;
     var rightX = halfWidth + lipRadius;
-    leftVerticesAndUps.AddLast(new Vector3(-halfWidth, 0.0f, 0.0f));
-    leftVerticesAndUps.AddLast(new Vector3(0.0f, 1.0f, 0.0f));
-    rightVerticesAndUps.AddFirst(new Vector3(0.0f, 1.0f, 0.0f));
-    rightVerticesAndUps.AddFirst(new Vector3(halfWidth, 0.0f, 0.0f));
+    leftLipVerticesAndUps.AddLast(new Vector3(-halfWidth, 0.0f, 0.0f));
+    leftLipVerticesAndUps.AddLast(new Vector3(0.0f, 1.0f, 0.0f));
+    rightLipVerticesAndUps.AddFirst(new Vector3(0.0f, 1.0f, 0.0f));
+    rightLipVerticesAndUps.AddFirst(new Vector3(halfWidth, 0.0f, 0.0f));
     
     var totalRads = Mathf.Abs(angle * Mathf.Deg2Rad);
     var sign = Mathf.Sign(angle);
@@ -36,35 +40,59 @@ public class CylinderRamp : Ramp {
       var rads = ii * totalRads / divisions;
       var sinr = Mathf.Sin(rads);
       var cosr = Mathf.Cos(rads);
-      var y = radius * (cosr - 1.0f) * sign;
-      var z = lipRadius + radius * sinr;
+      var topY = radius * (cosr - 1.0f) * sign;
+      var topZ = lipRadius + radius * sinr;
       var normal = new Vector3(0.0f, cosr, sinr * sign);
 
-      verticesAndNormals.Add(new Vector3(rightX, y, z));
-      verticesAndNormals.Add(normal);
+      topVerticesAndNormals.Add(new Vector3(rightX, topY, topZ));
+      topVerticesAndNormals.Add(normal);
 
-      verticesAndNormals.Add(new Vector3(leftX, y, z));
-      verticesAndNormals.Add(normal);
+      topVerticesAndNormals.Add(new Vector3(leftX, topY, topZ));
+      topVerticesAndNormals.Add(normal);
 
-      leftVerticesAndUps.AddLast(new Vector3(-halfWidth, y, z));
-      leftVerticesAndUps.AddLast(normal);
+      var negativeNormal = -normal;
+      var bottomY = topY + negativeNormal.y * height;
+      var bottomZ = topZ + negativeNormal.z * height;
+      bottomVerticesAndNormals.Add(new Vector3(leftX, bottomY, bottomZ));
+      bottomVerticesAndNormals.Add(negativeNormal);
 
-      rightVerticesAndUps.AddFirst(normal);
-      rightVerticesAndUps.AddFirst(new Vector3(halfWidth, y, z));
+      bottomVerticesAndNormals.Add(new Vector3(rightX, bottomY, bottomZ));
+      bottomVerticesAndNormals.Add(negativeNormal);
+
+      leftVerticesAndNormals.Add(new Vector3(leftX, topY, topZ));
+      leftVerticesAndNormals.Add(Vector3.left);
+
+      leftVerticesAndNormals.Add(new Vector3(leftX, bottomY, bottomZ));
+      leftVerticesAndNormals.Add(Vector3.left);
+
+      rightVerticesAndNormals.Add(new Vector3(rightX, bottomY, bottomZ));
+      rightVerticesAndNormals.Add(Vector3.right);
+
+      rightVerticesAndNormals.Add(new Vector3(rightX, topY, topZ));
+      rightVerticesAndNormals.Add(Vector3.right);
+
+      leftLipVerticesAndUps.AddLast(new Vector3(-halfWidth, topY, topZ));
+      leftLipVerticesAndUps.AddLast(normal);
+
+      rightLipVerticesAndUps.AddFirst(normal);
+      rightLipVerticesAndUps.AddFirst(new Vector3(halfWidth, topY, topZ));
       
       if (ii == divisions) {
-        var extendedY = y - lipRadius * sinr * sign;
-        var extendedZ = z + lipRadius * cosr;
-        leftVerticesAndUps.AddLast(new Vector3(-halfWidth, extendedY, extendedZ));
-        leftVerticesAndUps.AddLast(normal);
-        rightVerticesAndUps.AddFirst(normal);
-        rightVerticesAndUps.AddFirst(new Vector3(halfWidth, extendedY, extendedZ));
+        var extendedY = topY - lipRadius * sinr * sign;
+        var extendedZ = topZ + lipRadius * cosr;
+        leftLipVerticesAndUps.AddLast(new Vector3(-halfWidth, extendedY, extendedZ));
+        leftLipVerticesAndUps.AddLast(normal);
+        rightLipVerticesAndUps.AddFirst(normal);
+        rightLipVerticesAndUps.AddFirst(new Vector3(halfWidth, extendedY, extendedZ));
       }
     }
     builder
-      .AddQuadStrip(verticesAndNormals.ToArray())
-      .AddCurvedLip(leftVerticesAndUps.ToArray())
-      .AddCurvedLip(rightVerticesAndUps.ToArray());
+      .AddQuadStrip(topVerticesAndNormals.ToArray())
+      .AddQuadStrip(bottomVerticesAndNormals.ToArray())
+      .AddQuadStrip(leftVerticesAndNormals.ToArray())
+      .AddQuadStrip(rightVerticesAndNormals.ToArray())
+      .AddCurvedLip(leftLipVerticesAndUps.ToArray())
+      .AddCurvedLip(rightLipVerticesAndUps.ToArray());
   }
 
   protected override void PopulateCutouts (List<Cutout> cutouts) {
