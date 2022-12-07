@@ -8,6 +8,15 @@ public class ScaleRamp : Ramp {
   Vector3 extents => size * 0.5f;
   Vector3 lipExtents => extents + new Vector3(lipRadius, 0.0f, 0.0f);
 
+  public override void Traverse (RampTraverser traverser, RaycastHit hitInfo) {
+    base.Traverse(traverser, hitInfo);
+
+    var traverserTransform = traverser.GetComponent<Transform>();
+    var localPosition = transform.InverseTransformPoint(traverserTransform.position);
+    var scale = Mathf.Lerp(1.0f, scaleFactor, (localPosition.z - lipRadius) / size.z);
+    traverserTransform.localScale = new Vector3(scale, scale, scale);
+  }
+
   protected override Bounds GetLocalBounds () {
     var maxSize = size;
     if (scaleFactor > 1.0f) maxSize = new Vector3(size.x * scaleFactor, size.y * scaleFactor, size.z);

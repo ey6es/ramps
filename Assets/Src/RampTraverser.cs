@@ -5,6 +5,12 @@ public class RampTraverser : MonoBehaviour {
   public float raycastMaxDistance = 2.0f;
   public LayerMask raycastLayerMask;
 
+  public void Align (Vector3 position, Vector3 normal) {
+    transform.position = position;
+    var angle = Vector3.Angle(transform.up, normal);
+    transform.Rotate(Vector3.Cross(transform.up, normal), angle, Space.World);
+  }
+
   void FixedUpdate () {
     RaycastHit hitInfo;
     if (Physics.Raycast(
@@ -14,10 +20,7 @@ public class RampTraverser : MonoBehaviour {
         raycastMaxDistance,
         raycastLayerMask,
         QueryTriggerInteraction.Ignore)) {
-      transform.position = hitInfo.point;
-
-      var angle = Vector3.Angle(transform.up, hitInfo.normal);
-      if (angle > 0.01f) transform.Rotate(Vector3.Cross(transform.up, hitInfo.normal), angle, Space.World);
+      hitInfo.transform.GetComponent<Ramp>().Traverse(this, hitInfo);
     }
   }
 }

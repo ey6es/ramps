@@ -11,10 +11,21 @@ public class CylinderRamp : Ramp {
 
   float halfWidth => width * 0.5f;
   int divisions => System.Math.Max(1, (int)(radius * Mathf.Abs(angle * Mathf.Deg2Rad) * detail));
+  Vector3 center => new Vector3(0.0f, angle > 0 ? -radius : radius, lipRadius);
+
+  public override void Traverse (RampTraverser traverser, RaycastHit hitInfo) {
+    var traverserTransform = traverser.GetComponent<Transform>();
+    var localPosition = transform.InverseTransformPoint(traverserTransform.position);
+    var sign = Mathf.Sign(angle);
+    var normal = new Vector3(0.0f, localPosition.y - center.y, localPosition.z - center.z).normalized * sign;
+    var rampPosition = center + normal * radius * sign;
+    traverser.Align(
+      transform.TransformPoint(new Vector3(localPosition.x, rampPosition.y, rampPosition.z)),
+      transform.TransformDirection(normal));
+  }
 
   protected override Bounds GetLocalBounds () {
-    return new Bounds(
-      new Vector3(0.0f, angle > 0 ? -radius : radius, lipRadius), new Vector3(width, 2.0f * radius, 2.0f * radius));
+    return new Bounds(center, new Vector3(width, 2.0f * radius, 2.0f * radius));
   }
 
   protected override void PopulateMeshBuilder (MeshBuilder builder) {

@@ -18,6 +18,10 @@ public abstract class Ramp : MonoBehaviour {
     if (TryGetComponent<MeshRenderer>(out var meshRenderer)) meshRenderer.material = material;
   }
 
+  public virtual void Traverse (RampTraverser traverser, RaycastHit hitInfo) {
+    traverser.Align(hitInfo.point, hitInfo.normal);
+  }
+
   void OnEnable () {
     if (Application.isEditor) EditorApplication.update += OnUpdate;
   }
