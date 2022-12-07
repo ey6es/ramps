@@ -142,6 +142,8 @@ public abstract class Ramp : MonoBehaviour {
     List<Vector3> collisionVertices = new List<Vector3>();
     List<int> collisionIndices = new List<int>();
 
+    const float kSmall = 0.001f;
+
     public MeshBuilder (Ramp outer) {
       this.outer = outer;
       var bounds = outer.GetWorldBounds();
@@ -200,17 +202,6 @@ public abstract class Ramp : MonoBehaviour {
       return this;
     }
 
-    public MeshBuilder AddLip (params Vector3[] verticesAndUps) {
-      for (int ii = 0, nn = verticesAndUps.Length - 4; ii <= nn; ii += 2) {
-        AddLipSegment(
-          ii == 0 ? null : verticesAndUps[ii - 2],
-          verticesAndUps[ii], verticesAndUps[ii + 1],
-          verticesAndUps[ii + 2], verticesAndUps[ii + 3],
-          ii == nn ? null : verticesAndUps[ii + 4]);
-      }
-      return this;
-    }
-
     public MeshBuilder AddLipLoop (params Vector3[] verticesAndUps) {
       for (var ii = 0; ii < verticesAndUps.Length; ii += 2) {
         AddLipSegment(
@@ -223,13 +214,24 @@ public abstract class Ramp : MonoBehaviour {
     }
 
     public MeshBuilder AddContinuousLip (params Vector3[] verticesAndUps) {
-      AddLipSegment(null, verticesAndUps[0], verticesAndUps[1], verticesAndUps[2], verticesAndUps[3], verticesAndUps[2]);
-      var ll = verticesAndUps.Length - 4;
-      AddLipSegment(
-        verticesAndUps[ll], verticesAndUps[ll], verticesAndUps[ll + 1], verticesAndUps[ll + 2], verticesAndUps[ll + 3], null);
-      
+      Vector3? prev = null;
+      Vector3? next = null;
+      var ll = verticesAndUps.Length - 2;
+      foreach (var cutout in cutouts) {
+        AdjustSegmentPrev(cutout, verticesAndUps[0], verticesAndUps[2], ref prev);
+        AdjustSegmentNext(cutout, verticesAndUps[ll - 2], verticesAndUps[ll], ref next);
+      }
+      if (!prev.HasValue) {
+        var up = verticesAndUps[1];
+        AddLipCap(verticesAndUps[0], (verticesAndUps[0] - verticesAndUps[2]).normalized * up.magnitude, up);
+      }
+      if (!next.HasValue) {
+        var up = verticesAndUps[ll + 1];
+        AddLipCap(verticesAndUps[ll], (verticesAndUps[ll] - verticesAndUps[ll - 2]).normalized * up.magnitude, up);
+      }
+
       var lipDivisions = outer.lipDivisions;
-      for (int ii = 0, nn = verticesAndUps.Length / 2 - 3; ii < nn; ++ii) {
+      for (int ii = 0, nn = verticesAndUps.Length / 2 - 1; ii < nn; ++ii) {
         for (var jj = 0; jj < lipDivisions; ++jj) {
           var baseIndex = visibleVertices.Count + ii * (lipDivisions + 1) + jj;
 
@@ -243,26 +245,28 @@ public abstract class Ramp : MonoBehaviour {
         }
         AddParallelQuadIndices(collisionIndices, collisionVertices.Count + ii * 2);
       }
-      for (var ii = 2; ii <= ll; ii += 2) {
+      for (var ii = 0; ii <= ll; ii += 2) {
         var (vertex, up) = (verticesAndUps[ii], verticesAndUps[ii + 1]);
-        var dir = (verticesAndUps[ii + 2] - vertex).normalized;
+        var dir = (ii == ll ? vertex - verticesAndUps[ii - 2] : verticesAndUps[ii + 2] - vertex).normalized;
         var right = Vector3.Cross(up, dir).normalized * up.magnitude;
 
-        var planeNormal = (ii == 2)
-          ? (vertex - verticesAndUps[ii - 2]).normalized
-          : (ii == ll)
-          ? (verticesAndUps[ii + 2] - vertex).normalized
-          : dir;
-        var plane = new Plane(planeNormal, vertex);
+        Plane? plane = null;
+        if (ii == 0 && prev.HasValue) plane = new Plane(((vertex - prev.Value).normalized + dir).normalized, vertex);
+        else if (ii == ll && next.HasValue) plane = new Plane((dir + (next.Value - vertex).normalized).normalized, vertex);
 
         for (var jj = 0; jj <= lipDivisions; ++jj) {
           var angle = jj * Mathf.PI / lipDivisions;
           var normal = Mathf.Sin(angle) * up - Mathf.Cos(angle) * right;
 
-          var ray = new Ray(vertex + normal * outer.lipRadius, dir);
-          plane.Raycast(ray, out var enter);
-          visibleVertices.Add(ray.GetPoint(enter));
-          normals.Add(normal);
+          var point = vertex + normal * outer.lipRadius;
+          if (plane.HasValue) {
+            var ray = new Ray(point, dir);
+            plane.Value.Raycast(ray, out var enter);
+            visibleVertices.Add(ray.GetPoint(enter));
+
+          } else visibleVertices.Add(point);
+
+          normals.Add(normal.normalized);
         }
 
         collisionVertices.Add(vertex);
@@ -276,89 +280,97 @@ public abstract class Ramp : MonoBehaviour {
       var length = forward.magnitude;
       var dir = forward / length;
 
-      const float kSmall = 0.001f;
       foreach (var cutout in cutouts) {
-          if (Vector3.Dot(dir, cutout.dir) > -1.0f + kSmall) {
-            // consider adjusting prev/next based on cutout
-            var endProj = Vector3.Dot(end - cutout.start, cutout.dir);
-            if (endProj >= 0.0f && endProj <= cutout.length) {
-              var point = cutout.start + endProj * cutout.dir;
-              if (Vector3.Distance(end, point) <= kSmall) {
-                next = end + (endProj > cutout.length - kSmall ? GetNextCutoutDir(cutout, dir) : cutout.dir);
-              }
-            }
-            var startProj = Vector3.Dot(start - cutout.start, cutout.dir);
-            if (startProj >= 0.0f && startProj <= cutout.length) {
-              var point = cutout.start + startProj * cutout.dir;
-              if (Vector3.Distance(start, point) <= kSmall) {
-                prev = start - (startProj < kSmall ? GetPrevCutoutDir(cutout, dir) : cutout.dir);
-              }
-            }
-          } else {
-            // cutout and segment aligned; consider cutting out of segment
-            var startProj = Vector3.Dot(cutout.start - start, dir);
-            if (startProj < kSmall) continue;
+        if (Vector3.Dot(dir, cutout.dir) > -1.0f + kSmall) {
+          // consider adjusting prev/next based on cutout
+          AdjustSegmentPrev(cutout, start, end, ref prev);
+          AdjustSegmentNext(cutout, start, end, ref next);
 
-            var endProj = Vector3.Dot(cutout.end - start, dir);
-            if (endProj > length - kSmall) continue;
+        } else {
+          // cutout and segment aligned; consider cutting out of segment
+          var startProj = Vector3.Dot(cutout.start - start, dir);
+          if (startProj < kSmall) continue;
 
-            var startPoint = start + dir * startProj;
-            var endPoint = start + dir * endProj;
-            if (Vector3.Distance(startPoint, cutout.start) > kSmall ||
-                Vector3.Distance(endPoint, cutout.end) > kSmall) continue;
-            if (endProj > 0.0f) {
-              var endPointUp = Vector3.Lerp(startUp, endUp, endProj / length).normalized;
-              AddLipSegment(
-                prev, start, startUp, endPoint, endPointUp,
-                endPoint + GetNextCutoutDir(cutout, Vector3.Cross(dir, endPointUp)));
-            }
-            if (startProj < length) {
-              var startPointUp = Vector3.Lerp(startUp, endUp, startProj / length).normalized;
-              AddLipSegment(
-                startPoint - GetPrevCutoutDir(cutout, Vector3.Cross(startPointUp, dir)),
-                startPoint, startPointUp, end, endUp, next);
-            }
-            return;
+          var endProj = Vector3.Dot(cutout.end - start, dir);
+          if (endProj > length - kSmall) continue;
+
+          var startPoint = start + dir * startProj;
+          var endPoint = start + dir * endProj;
+          if (Vector3.Distance(startPoint, cutout.start) > kSmall ||
+              Vector3.Distance(endPoint, cutout.end) > kSmall) continue;
+          if (endProj > 0.0f) {
+            var endPointUp = Vector3.Lerp(startUp, endUp, endProj / length).normalized;
+            AddLipSegment(
+              prev, start, startUp, endPoint, endPointUp,
+              endPoint + GetNextCutoutDir(cutout, Vector3.Cross(dir, endPointUp)));
           }
+          if (startProj < length) {
+            var startPointUp = Vector3.Lerp(startUp, endUp, startProj / length).normalized;
+            AddLipSegment(
+              startPoint - GetPrevCutoutDir(cutout, Vector3.Cross(startPointUp, dir)),
+              startPoint, startPointUp, end, endUp, next);
+          }
+          return;
         }
+      }
 
-        var lipDivisions = outer.lipDivisions;
-        for (var ii = 0; ii < lipDivisions; ++ii) {
-          AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
+      var lipDivisions = outer.lipDivisions;
+      for (var ii = 0; ii < lipDivisions; ++ii) {
+        AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
+      }
+      var startRight = Vector3.Cross(startUp, dir).normalized * startUp.magnitude;
+      var endRight = Vector3.Cross(endUp, dir).normalized * endUp.magnitude;
+      var startPlane = new Plane(
+        prev.HasValue && prev.Value != start ? ((start - prev.Value).normalized + dir).normalized : dir, start);
+      var endPlane = new Plane(
+        next.HasValue && next.Value != end ? (dir + (next.Value - end).normalized).normalized : dir, end);
+      for (var ii = 0; ii <= lipDivisions; ++ii) {
+        var angle = ii * Mathf.PI / lipDivisions;
+        var sina = Mathf.Sin(angle);
+        var cosa = Mathf.Cos(angle);
+
+        var startVector = sina * startUp - cosa * startRight;
+        var startRay = new Ray(start + startVector * outer.lipRadius, dir);
+        startPlane.Raycast(startRay, out var startEnter);
+        visibleVertices.Add(startRay.GetPoint(startEnter));
+        normals.Add(startVector.normalized);
+
+        var endVector = sina * endUp - cosa * endRight;
+        var endRay = new Ray(end + endVector * outer.lipRadius, dir);
+        endPlane.Raycast(endRay, out var endEnter);
+        visibleVertices.Add(endRay.GetPoint(endEnter));
+        normals.Add(endVector.normalized);
+      }
+
+      if (!prev.HasValue) AddLipCap(start, -dir * startUp.magnitude, startUp);
+      if (!next.HasValue) AddLipCap(end, dir * endUp.magnitude, endUp);
+
+      AddParallelQuadIndices(collisionIndices, collisionVertices.Count);
+
+      collisionVertices.Add(end + endUp * outer.railHeight);
+      collisionVertices.Add(end);
+      collisionVertices.Add(start + startUp * outer.railHeight);
+      collisionVertices.Add(start);
+    }
+
+    void AdjustSegmentPrev (Cutout cutout, Vector3 start, Vector3 end, ref Vector3? prev) {
+      var startProj = Vector3.Dot(start - cutout.start, cutout.dir);
+      if (startProj >= 0.0f && startProj <= cutout.length) {
+        var point = cutout.start + startProj * cutout.dir;
+        if (Vector3.Distance(start, point) <= kSmall) {
+          prev = start - (startProj < kSmall ? GetPrevCutoutDir(cutout, (end - start).normalized) : cutout.dir);
         }
-        var startRight = Vector3.Cross(startUp, dir).normalized * startUp.magnitude;
-        var endRight = Vector3.Cross(endUp, dir).normalized * endUp.magnitude;
-        var startPlane = new Plane(
-          prev.HasValue && prev.Value != start ? ((start - prev.Value).normalized + dir).normalized : dir, start);
-        var endPlane = new Plane(
-          next.HasValue && next.Value != end ? (dir + (next.Value - end).normalized).normalized : dir, end);
-        for (var ii = 0; ii <= lipDivisions; ++ii) {
-          var angle = ii * Mathf.PI / lipDivisions;
-          var sina = Mathf.Sin(angle);
-          var cosa = Mathf.Cos(angle);
+      }
+    }
 
-          var startVector = sina * startUp - cosa * startRight;
-          var startRay = new Ray(start + startVector * outer.lipRadius, dir);
-          startPlane.Raycast(startRay, out var startEnter);
-          visibleVertices.Add(startRay.GetPoint(startEnter));
-          normals.Add(startVector);
-
-          var endVector = sina * endUp - cosa * endRight;
-          var endRay = new Ray(end + endVector * outer.lipRadius, dir);
-          endPlane.Raycast(endRay, out var endEnter);
-          visibleVertices.Add(endRay.GetPoint(endEnter));
-          normals.Add(endVector);
+    void AdjustSegmentNext (Cutout cutout, Vector3 start, Vector3 end, ref Vector3? next) {
+      var endProj = Vector3.Dot(end - cutout.start, cutout.dir);
+      if (endProj >= 0.0f && endProj <= cutout.length) {
+        var point = cutout.start + endProj * cutout.dir;
+        if (Vector3.Distance(end, point) <= kSmall) {
+          next = end + (endProj > cutout.length - kSmall ? GetNextCutoutDir(cutout, (end - start).normalized) : cutout.dir);
         }
-
-        if (!prev.HasValue) AddLipCap(start, -dir * startUp.magnitude, startUp);
-        if (!next.HasValue) AddLipCap(end, dir * endUp.magnitude, endUp);
-
-        AddParallelQuadIndices(collisionIndices, collisionVertices.Count);
-
-        collisionVertices.Add(end + endUp * outer.railHeight);
-        collisionVertices.Add(end);
-        collisionVertices.Add(start + startUp * outer.railHeight);
-        collisionVertices.Add(start);
+      }
     }
 
     void AddLipCap (Vector3 center, Vector3 forward, Vector3 up) {
@@ -388,7 +400,7 @@ public abstract class Ramp : MonoBehaviour {
           var normal = Mathf.Sin(phi) * rotatedUp + Mathf.Cos(phi) * right;
 
           visibleVertices.Add(center + normal * outer.lipRadius);
-          normals.Add(normal);
+          normals.Add(normal.normalized);
         }
       }
     }
