@@ -22,9 +22,7 @@ public class RampMenu : MonoBehaviour {
     var gameObject = new GameObject(name);
     gameObject.layer = LayerMask.NameToLayer("Ramp");
     var platform = gameObject.AddComponent<T>();
-    foreach (Object obj in AssetDatabase.LoadAllAssetsAtPath("Resources/unity_builtin_extra")) {
-      if (obj.name.Equals("Default-Material")) platform.SetMaterial(obj as Material);
-    }
+    platform.SetMaterial(AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Ramp.mat"));
     GameObjectUtility.SetParentAndAlign(gameObject, menuCommand.context as GameObject);
     Undo.RegisterCreatedObjectUndo(gameObject, "Create " + gameObject.name);
     Selection.activeObject = gameObject;
