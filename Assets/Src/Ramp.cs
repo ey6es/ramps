@@ -18,16 +18,28 @@ public abstract class Ramp : MonoBehaviour {
     if (TryGetComponent<MeshRenderer>(out var meshRenderer)) meshRenderer.material = material;
   }
 
-  public virtual void Traverse (RampTraverser traverser, RaycastHit hitInfo) {
+  public virtual void OnTraverserEnter (RampTraverser traverser, ref object data) {
+    // nothing by default
+  }
+
+  public virtual void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, ref object data) {
     traverser.Align(hitInfo.point, hitInfo.normal);
   }
 
+  public virtual void OnTraverserExit (RampTraverser traverser, object data) {
+    // nothing by default
+  }
+
   void OnEnable () {
-    if (Application.isEditor) EditorApplication.update += OnUpdate;
+    #if UNITY_EDITOR
+      if (Application.isEditor) EditorApplication.update += OnUpdate;
+    #endif
   }
 
   void OnDisable () {
-    if (Application.isEditor) EditorApplication.update -= OnUpdate;
+    #if UNITY_EDITOR
+      if (Application.isEditor) EditorApplication.update -= OnUpdate;
+    #endif
   }
 
   void OnValidate () {

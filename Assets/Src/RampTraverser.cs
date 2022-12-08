@@ -5,6 +5,9 @@ public class RampTraverser : MonoBehaviour {
   public float raycastMaxDistance = 2.0f;
   public LayerMask raycastLayerMask;
 
+  Ramp lastRamp;
+  object rampData;
+
   public void Align (Vector3 position, Vector3 normal) {
     transform.position = position;
     var angle = Vector3.Angle(transform.up, normal);
@@ -20,7 +23,20 @@ public class RampTraverser : MonoBehaviour {
         raycastMaxDistance,
         raycastLayerMask,
         QueryTriggerInteraction.Ignore)) {
-      hitInfo.transform.GetComponent<Ramp>().Traverse(this, hitInfo);
-    }
+      SetRamp(hitInfo.transform.GetComponent<Ramp>());
+      if (lastRamp) lastRamp.OnTraverserStay(this, hitInfo, ref rampData);
+
+    } else SetRamp(null);
+  }
+
+  void OnDestroy () {
+    SetRamp(null);    
+  }
+
+  void SetRamp (Ramp ramp) {
+    if (lastRamp == ramp) return;
+    if (lastRamp) lastRamp.OnTraverserExit(this, rampData);
+    lastRamp = ramp;
+    if (lastRamp) lastRamp.OnTraverserEnter(this, ref rampData);
   }
 }

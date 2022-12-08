@@ -8,13 +8,41 @@ public class ScaleRamp : Ramp {
   Vector3 extents => size * 0.5f;
   Vector3 lipExtents => extents + new Vector3(lipRadius, 0.0f, 0.0f);
 
-  public override void Traverse (RampTraverser traverser, RaycastHit hitInfo) {
-    base.Traverse(traverser, hitInfo);
+  struct TraverserData {
+    public float initialScale;
+    public bool enteredFront;
 
-    var traverserTransform = traverser.GetComponent<Transform>();
-    var localPosition = transform.InverseTransformPoint(traverserTransform.position);
-    var scale = Mathf.Lerp(1.0f, scaleFactor, (localPosition.z - lipRadius) / size.z);
-    traverserTransform.localScale = new Vector3(scale, scale, scale);
+    public TraverserData (float initialScale, bool enteredFront) {
+      this.initialScale = initialScale;
+      this.enteredFront = enteredFront;
+    }
+  }
+
+  public override void OnTraverserEnter (RampTraverser traverser, ref object data) {
+    data = new TraverserData(traverser.transform.localScale.x, IsTraverserAtFront(traverser));
+  }
+
+  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, ref object data) {
+    base.OnTraverserStay(traverser, hitInfo, ref data);
+
+    UpdateTraverserScale(traverser, (TraverserData)data,
+      (transform.InverseTransformPoint(traverser.transform.position).z - lipRadius) / size.z);
+  }
+
+  public override void OnTraverserExit (RampTraverser traverser, object data) {
+    UpdateTraverserScale(traverser, (TraverserData)data, IsTraverserAtFront(traverser) ? 0.0f : 1.0f);
+  }
+
+  void UpdateTraverserScale (RampTraverser traverser, TraverserData data, float alpha) {
+    var (startScale, endScale) = data.enteredFront
+      ? (data.initialScale, data.initialScale * scaleFactor)
+      : (data.initialScale / scaleFactor, data.initialScale);
+    var scale = Mathf.Lerp(startScale, endScale, alpha);
+    traverser.transform.localScale = new Vector3(scale, scale, scale);
+  }
+
+  bool IsTraverserAtFront (RampTraverser traverser) {
+    return transform.InverseTransformPoint(traverser.transform.position).z - lipRadius < extents.z;
   }
 
   protected override Bounds GetLocalBounds () {
