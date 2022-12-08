@@ -154,6 +154,7 @@ public abstract class Ramp : MonoBehaviour {
     List<Cutout> cutouts = new List<Cutout>();
     List<Vector3> visibleVertices = new List<Vector3>();
     List<Vector3> normals = new List<Vector3>();
+    List<Vector2> uvs = new List<Vector2>();
     List<int> visibleIndices = new List<int>();
     List<Vector3> collisionVertices = new List<Vector3>();
     List<int> collisionIndices = new List<int>();
@@ -187,6 +188,11 @@ public abstract class Ramp : MonoBehaviour {
         visibleVertices.Add(v2);
         visibleVertices.Add(v3);
 
+        uvs.Add(new Vector3());
+        uvs.Add(new Vector3());
+        uvs.Add(new Vector3());
+        uvs.Add(new Vector3());
+
         var normal = Vector3.Cross(v1 - v0, v3 - v0).normalized;
         normals.Add(normal);
         normals.Add(normal);
@@ -213,18 +219,22 @@ public abstract class Ramp : MonoBehaviour {
         visibleVertices.Add(vertex);
         collisionVertices.Add(vertex);
         normals.Add(quadVerticesAndNormals[ii + 1]);
+        uvs.Add(new Vector3());
       }
-
       return this;
     }
 
     public MeshBuilder AddLipLoop (params Vector3[] verticesAndUps) {
+      var v = 0.0f;
       for (var ii = 0; ii < verticesAndUps.Length; ii += 2) {
+        var start = verticesAndUps[ii];
+        var end = verticesAndUps[(ii + 2) % verticesAndUps.Length];
         AddLipSegment(
           verticesAndUps[(ii + verticesAndUps.Length - 2) % verticesAndUps.Length],
-          verticesAndUps[ii], verticesAndUps[ii + 1],
-          verticesAndUps[(ii + 2) % verticesAndUps.Length], verticesAndUps[(ii + 3) % verticesAndUps.Length],
+          start, verticesAndUps[ii + 1], v,
+          end, verticesAndUps[(ii + 3) % verticesAndUps.Length],
           verticesAndUps[(ii + 4) % verticesAndUps.Length]);
+        v += Vector3.Distance(start, end);
       }
       return this;
     }
@@ -239,11 +249,13 @@ public abstract class Ramp : MonoBehaviour {
       }
       if (!prev.HasValue) {
         var up = verticesAndUps[1];
-        AddLipCap(verticesAndUps[0], (verticesAndUps[0] - verticesAndUps[2]).normalized * up.magnitude, up);
+        AddLipCap(verticesAndUps[0], (verticesAndUps[0] - verticesAndUps[2]).normalized * up.magnitude, up, 0.0f, false);
       }
       if (!next.HasValue) {
         var up = verticesAndUps[ll + 1];
-        AddLipCap(verticesAndUps[ll], (verticesAndUps[ll] - verticesAndUps[ll - 2]).normalized * up.magnitude, up);
+        var endV = 0.0f;
+        for (var ii = 0; ii < ll; ii += 2) endV += Vector3.Distance(verticesAndUps[ii], verticesAndUps[ii + 2]);
+        AddLipCap(verticesAndUps[ll], (verticesAndUps[ll] - verticesAndUps[ll - 2]).normalized * up.magnitude, up, endV, true);
       }
 
       var lipDivisions = outer.lipDivisions;
@@ -261,17 +273,29 @@ public abstract class Ramp : MonoBehaviour {
         }
         AddParallelQuadIndices(collisionIndices, collisionVertices.Count + ii * 2);
       }
+      var v = 0.0f;
       for (var ii = 0; ii <= ll; ii += 2) {
         var (vertex, up) = (verticesAndUps[ii], verticesAndUps[ii + 1]);
         var dir = (ii == ll ? vertex - verticesAndUps[ii - 2] : verticesAndUps[ii + 2] - vertex).normalized;
         var right = Vector3.Cross(up, dir).normalized * up.magnitude;
 
+        if (ii != 0) v += Vector3.Distance(verticesAndUps[ii - 2], vertex);
+
         Plane? plane = null;
         if (ii == 0 && prev.HasValue) plane = new Plane(((vertex - prev.Value).normalized + dir).normalized, vertex);
         else if (ii == ll && next.HasValue) plane = new Plane((dir + (next.Value - vertex).normalized).normalized, vertex);
 
+        var uScale = outer.lipRadius * up.magnitude;
+        var leftV = v;
+        var rightV = v;
+        if (plane.HasValue) {
+          var diff = Mathf.Tan(Vector3.SignedAngle(plane.Value.normal, dir, up) * Mathf.Deg2Rad) * uScale;
+          leftV -= diff;
+          rightV += diff;
+        }
         for (var jj = 0; jj <= lipDivisions; ++jj) {
-          var angle = jj * Mathf.PI / lipDivisions;
+          var s = (float)jj / lipDivisions;
+          var angle = Mathf.PI * s;
           var normal = Mathf.Sin(angle) * up - Mathf.Cos(angle) * right;
 
           var point = vertex + normal * outer.lipRadius;
@@ -283,6 +307,7 @@ public abstract class Ramp : MonoBehaviour {
           } else visibleVertices.Add(point);
 
           normals.Add(normal.normalized);
+          uvs.Add(new Vector3((s * 2.0f - 1.0f) * uScale, Mathf.Lerp(leftV, rightV, s)));
         }
 
         collisionVertices.Add(vertex);
@@ -291,7 +316,8 @@ public abstract class Ramp : MonoBehaviour {
       return this;
     }
 
-    public void AddLipSegment (Vector3? prev, Vector3 start, Vector3 startUp, Vector3 end, Vector3 endUp, Vector3? next) {
+    public void AddLipSegment (
+        Vector3? prev, Vector3 start, Vector3 startUp, float startV, Vector3 end, Vector3 endUp, Vector3? next) {
       var forward = end - start;
       var length = forward.magnitude;
       var dir = forward / length;
@@ -317,14 +343,14 @@ public abstract class Ramp : MonoBehaviour {
           if (endProj > 0.0f) {
             var endPointUp = Vector3.Lerp(startUp, endUp, endProj / length).normalized;
             AddLipSegment(
-              prev, start, startUp, endPoint, endPointUp,
+              prev, start, startUp, startV, endPoint, endPointUp,
               endPoint + GetNextCutoutDir(cutout, Vector3.Cross(dir, endPointUp)));
           }
           if (startProj < length) {
             var startPointUp = Vector3.Lerp(startUp, endUp, startProj / length).normalized;
             AddLipSegment(
               startPoint - GetPrevCutoutDir(cutout, Vector3.Cross(startPointUp, dir)),
-              startPoint, startPointUp, end, endUp, next);
+              startPoint, startPointUp, startV + Vector3.Distance(start, startPoint), end, endUp, next);
           }
           return;
         }
@@ -334,14 +360,25 @@ public abstract class Ramp : MonoBehaviour {
       for (var ii = 0; ii < lipDivisions; ++ii) {
         AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
       }
+      var endV = startV + Vector3.Distance(start, end);
       var startRight = Vector3.Cross(startUp, dir).normalized * startUp.magnitude;
       var endRight = Vector3.Cross(endUp, dir).normalized * endUp.magnitude;
       var startPlane = new Plane(
         prev.HasValue && prev.Value != start ? ((start - prev.Value).normalized + dir).normalized : dir, start);
       var endPlane = new Plane(
         next.HasValue && next.Value != end ? (dir + (next.Value - end).normalized).normalized : dir, end);
+
+      var startUScale = outer.lipRadius * startUp.magnitude;
+      var endUScale = outer.lipRadius * endUp.magnitude;
+      var startDiff = Mathf.Tan(Vector3.SignedAngle(startPlane.normal, dir, startUp) * Mathf.Deg2Rad) * startUScale;
+      var startLeftV = startV - startDiff;
+      var startRightV = startV + startDiff;
+      var endDiff = Mathf.Tan(Vector3.SignedAngle(endPlane.normal, dir, endUp) * Mathf.Deg2Rad) * endUScale;
+      var endLeftV = endV - endDiff;
+      var endRightV = endV + endDiff;
       for (var ii = 0; ii <= lipDivisions; ++ii) {
-        var angle = ii * Mathf.PI / lipDivisions;
+        var s = (float)ii / lipDivisions;
+        var angle = Mathf.PI * s;
         var sina = Mathf.Sin(angle);
         var cosa = Mathf.Cos(angle);
 
@@ -350,16 +387,18 @@ public abstract class Ramp : MonoBehaviour {
         startPlane.Raycast(startRay, out var startEnter);
         visibleVertices.Add(startRay.GetPoint(startEnter));
         normals.Add(startVector.normalized);
+        uvs.Add(new Vector3((2.0f * s - 1.0f) * startUScale, Mathf.Lerp(startLeftV, startRightV, s)));
 
         var endVector = sina * endUp - cosa * endRight;
         var endRay = new Ray(end + endVector * outer.lipRadius, dir);
         endPlane.Raycast(endRay, out var endEnter);
         visibleVertices.Add(endRay.GetPoint(endEnter));
         normals.Add(endVector.normalized);
+        uvs.Add(new Vector3((2.0f * s - 1.0f) * endUScale, Mathf.Lerp(endLeftV, endRightV, s)));
       }
 
-      if (!prev.HasValue) AddLipCap(start, -dir * startUp.magnitude, startUp);
-      if (!next.HasValue) AddLipCap(end, dir * endUp.magnitude, endUp);
+      if (!prev.HasValue) AddLipCap(start, -dir * startUp.magnitude, startUp, startV, false);
+      if (!next.HasValue) AddLipCap(end, dir * endUp.magnitude, endUp, endV, true);
 
       AddParallelQuadIndices(collisionIndices, collisionVertices.Count);
 
@@ -389,7 +428,7 @@ public abstract class Ramp : MonoBehaviour {
       }
     }
 
-    void AddLipCap (Vector3 center, Vector3 forward, Vector3 up) {
+    void AddLipCap (Vector3 center, Vector3 forward, Vector3 up, float v, bool end) {
       var right = Vector3.Cross(up, forward).normalized * up.magnitude;
 
       var lipDivisions = outer.lipDivisions;
@@ -407,16 +446,20 @@ public abstract class Ramp : MonoBehaviour {
         }
       }
 
+      var uvScale = outer.lipRadius * (end ? 1.0f : -1.0f) * up.magnitude;
       for (var ii = 0; ii <= lipDivisions; ++ii) {
-        var theta = ii * Mathf.PI * 0.5f / lipDivisions;
+        var t = (float)ii / lipDivisions;
+        var theta = Mathf.PI * 0.5f * t;
         var rotatedUp = up * Mathf.Cos(theta) + forward * Mathf.Sin(theta);
 
         for (var jj = 0; jj <= lipDivisions; ++jj) {
-          var phi = jj * Mathf.PI / lipDivisions;
+          var s = (float)jj / lipDivisions;
+          var phi = Mathf.PI * s;
           var normal = Mathf.Sin(phi) * rotatedUp + Mathf.Cos(phi) * right;
 
           visibleVertices.Add(center + normal * outer.lipRadius);
           normals.Add(normal.normalized);
+          uvs.Add(new Vector2(0.0f, v) + new Vector2(1.0f - s * 2.0f, t) * uvScale);
         }
       }
     }
@@ -459,7 +502,9 @@ public abstract class Ramp : MonoBehaviour {
       visibleMesh.Clear();
       visibleMesh.SetVertices(visibleVertices);
       visibleMesh.SetNormals(normals);
+      visibleMesh.SetUVs(0, uvs);
       visibleMesh.SetIndices(visibleIndices, MeshTopology.Triangles, 0);
+      visibleMesh.RecalculateTangents();
 
       collisionMesh.Clear();
       collisionMesh.SetVertices(collisionVertices);
