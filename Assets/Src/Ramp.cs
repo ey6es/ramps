@@ -188,16 +188,19 @@ public abstract class Ramp : MonoBehaviour {
         visibleVertices.Add(v2);
         visibleVertices.Add(v3);
 
-        uvs.Add(new Vector3());
-        uvs.Add(new Vector3());
-        uvs.Add(new Vector3());
-        uvs.Add(new Vector3());
-
         var normal = Vector3.Cross(v1 - v0, v3 - v0).normalized;
         normals.Add(normal);
         normals.Add(normal);
         normals.Add(normal);
         normals.Add(normal);
+
+        var tangent = Vector3.Cross(
+          normal, Mathf.Abs(normal.y) > new Vector2(normal.x, normal.z).magnitude ? Vector3.forward : Vector3.up).normalized;
+        var bitangent = Vector3.Cross(tangent, normal);
+        uvs.Add(new Vector2(Vector3.Dot(v0, tangent), Vector3.Dot(v0, bitangent)));
+        uvs.Add(new Vector2(Vector3.Dot(v1, tangent), Vector3.Dot(v1, bitangent)));
+        uvs.Add(new Vector2(Vector3.Dot(v2, tangent), Vector3.Dot(v2, bitangent)));
+        uvs.Add(new Vector2(Vector3.Dot(v3, tangent), Vector3.Dot(v3, bitangent)));
 
         AddClockwiseQuadIndices(collisionIndices, collisionVertices.Count);
 
@@ -214,12 +217,21 @@ public abstract class Ramp : MonoBehaviour {
         AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
         AddParallelQuadIndices(collisionIndices, collisionVertices.Count + ii * 2);
       }
-      for (var ii = 0; ii < quadVerticesAndNormals.Length; ii += 2) {
-        var vertex = quadVerticesAndNormals[ii];
-        visibleVertices.Add(vertex);
-        collisionVertices.Add(vertex);
+      Vector2 uv = new Vector2();
+      for (var ii = 0; ii < quadVerticesAndNormals.Length; ii += 4) {
+        var (v0, v1) = (quadVerticesAndNormals[ii], quadVerticesAndNormals[ii + 2]);
+        
+        if (ii > 0) uv.y += Vector3.Distance(quadVerticesAndNormals[ii - 4], v0);
+
+        visibleVertices.Add(v0);
+        collisionVertices.Add(v0);
         normals.Add(quadVerticesAndNormals[ii + 1]);
-        uvs.Add(new Vector3());
+        uvs.Add(uv);
+
+        visibleVertices.Add(v1);
+        collisionVertices.Add(v1);
+        normals.Add(quadVerticesAndNormals[ii + 3]);
+        uvs.Add(uv - new Vector2(Vector3.Distance(v0, v1), 0.0f));
       }
       return this;
     }
