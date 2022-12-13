@@ -22,31 +22,66 @@ public class SplitRamp : Ramp {
   }
 
   protected override void PopulateMeshBuilder (MeshBuilder builder) {
-    var innerZ = farZ - lipRadius - innerFarX / Mathf.Tan(halfAngle);
+    var nearLeft = new Vector3(-entryWidth * 0.5f, 0.0f, lipRadius);
+    var middleLeft = new Vector3(-centralWidth * 0.5f, 0.0f, lipRadius + legLength);
+    var farLeft = new Vector3(-outerFarX, 0.0f, farZ - lipRadius);
+    var nearLeftEdge = GetEdgePoint(null, nearLeft, middleLeft);
+    var middleLeftEdge = GetEdgePoint(nearLeft, middleLeft, farLeft);
+    var farLeftEdge = GetEdgePoint(middleLeft, farLeft, null);
+
+    var leftInner = new Vector3(-innerFarX, 0.0f, farZ - lipRadius);
+    var middleInner = new Vector3(0.0f, 0.0f, farZ - lipRadius - innerFarX / Mathf.Tan(halfAngle));
+    var leftInnerEdge = GetEdgePoint(null, leftInner, middleInner);
+    var middleInnerEdge = GetEdgePoint(leftInner, middleInner, new Vector3(-leftInner.x, leftInner.y, leftInner.z));
+
     builder
-      .AddContinuousLip(
+      .AddLip(
         new Vector3(-entryWidth * 0.5f, 0.0f, 0.0f), Vector3.up,
-        new Vector3(-entryWidth * 0.5f, 0.0f, lipRadius), Vector3.up,
-        new Vector3(-centralWidth * 0.5f, 0.0f, lipRadius + legLength), Vector3.up,
-        new Vector3(-outerFarX, 0.0f, farZ - lipRadius), Vector3.up,
+        nearLeft, Vector3.up,
+        middleLeft, Vector3.up,
+        farLeft, Vector3.up,
         new Vector3(-outerFarX, 0.0f, farZ), Vector3.up)
-      .AddContinuousLip(
+      .AddLip(
         new Vector3(-innerFarX, 0.0f, farZ), Vector3.up,
-        new Vector3(-innerFarX, 0.0f, farZ - lipRadius), Vector3.up,
-        new Vector3(0.0f, 0.0f, innerZ), Vector3.up,
-        new Vector3(innerFarX, 0.0f, farZ - lipRadius), Vector3.up,
+        leftInner, Vector3.up,
+        middleInner, Vector3.up,
+        leftInner.FlipX(), Vector3.up,
         new Vector3(innerFarX, 0.0f, farZ), Vector3.up)
-      .AddContinuousLip(
+      .AddLip(
         new Vector3(outerFarX, 0.0f, farZ), Vector3.up,
-        new Vector3(outerFarX, 0.0f, farZ - lipRadius), Vector3.up,
-        new Vector3(centralWidth * 0.5f, 0.0f, lipRadius + legLength), Vector3.up,
-        new Vector3(entryWidth * 0.5f, 0.0f, lipRadius), Vector3.up,
+        farLeft.FlipX(), Vector3.up,
+        middleLeft.FlipX(), Vector3.up,
+        nearLeft.FlipX(), Vector3.up,
         new Vector3(entryWidth * 0.5f, 0.0f, 0.0f), Vector3.up)
       .AddQuads(
-        new Vector3(entryWidth * 0.5f + lipRadius, 0.0f, lipRadius),
-        new Vector3(-entryWidth * 0.5f - lipRadius, 0.0f, lipRadius),
-        new Vector3(-centralWidth * 0.5f - lipRadius, 0.0f, lipRadius + legLength),
-        new Vector3(centralWidth * 0.5f + lipRadius, 0.0f, lipRadius + legLength));
+        nearLeftEdge, middleLeftEdge, middleLeftEdge.FlipX(), nearLeftEdge.FlipX(),
+        middleLeftEdge, farLeftEdge, leftInnerEdge, middleInnerEdge,
+        middleInnerEdge, leftInnerEdge.FlipX(), farLeftEdge.FlipX(), middleLeftEdge.FlipX())
+      .AddTriangles(middleLeftEdge, middleInnerEdge, middleLeftEdge.FlipX());
+    if (height > 0.0f) {
+      var down = new Vector3(0.0f, -height, 0.0f);
+      builder
+        .AddQuads(
+          nearLeftEdge.FlipX() + down, middleLeftEdge.FlipX() + down, middleLeftEdge + down, nearLeftEdge + down,
+          middleInnerEdge + down, leftInnerEdge + down, farLeftEdge + down, middleLeftEdge + down,
+          middleLeftEdge.FlipX() + down, farLeftEdge.FlipX() + down, leftInnerEdge.FlipX() + down, middleInnerEdge + down,
+          nearLeftEdge, nearLeftEdge + down, middleLeftEdge + down, middleLeftEdge,
+          middleLeftEdge, middleLeftEdge + down, farLeftEdge + down, farLeftEdge,
+          farLeftEdge.FlipX(), farLeftEdge.FlipX() + down, middleLeftEdge.FlipX() + down, middleLeftEdge.FlipX(),
+          middleLeftEdge.FlipX(), middleLeftEdge.FlipX() + down, nearLeftEdge.FlipX() + down, nearLeftEdge.FlipX(),
+          leftInnerEdge, leftInnerEdge + down, middleInnerEdge + down, middleInnerEdge,
+          middleInnerEdge, middleInnerEdge + down, leftInnerEdge.FlipX() + down, leftInnerEdge.FlipX())
+        .AddTriangles(middleLeftEdge.FlipX() + down, middleInnerEdge + down, middleLeftEdge + down);
+    }
+  }
+
+  Vector3 GetEdgePoint (Vector3? prev, Vector3 current, Vector3? next) {
+    var dir = (next.HasValue ? next.Value - current : current - prev.Value).normalized;
+    var plane = new Plane(prev.HasValue && next.HasValue ? (next.Value - prev.Value).normalized : Vector3.forward, current);
+    var left = Vector3.Cross(dir, Vector3.up);
+    var ray = new Ray(current + left * lipRadius, dir);
+    plane.Raycast(ray, out var enter);
+    return ray.GetPoint(enter);
   }
 
   protected override void PopulateCutouts (List<Cutout> cutouts) {

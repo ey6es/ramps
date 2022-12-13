@@ -159,7 +159,7 @@ public abstract class Ramp : MonoBehaviour {
     List<Vector3> collisionVertices = new List<Vector3>();
     List<int> collisionIndices = new List<int>();
 
-    const float kSmall = 0.001f;
+    const float kSmall = 0.01f;
 
     public MeshBuilder (Ramp outer) {
       this.outer = outer;
@@ -194,8 +194,7 @@ public abstract class Ramp : MonoBehaviour {
         normals.Add(normal);
         normals.Add(normal);
 
-        var tangent = Vector3.Cross(
-          normal, Mathf.Abs(normal.y) > new Vector2(normal.x, normal.z).magnitude ? Vector3.forward : Vector3.up).normalized;
+        var tangent = GetTangent(normal);
         var bitangent = Vector3.Cross(tangent, normal);
         uvs.Add(new Vector2(Vector3.Dot(v0, tangent), Vector3.Dot(v0, bitangent)));
         uvs.Add(new Vector2(Vector3.Dot(v1, tangent), Vector3.Dot(v1, bitangent)));
@@ -212,6 +211,40 @@ public abstract class Ramp : MonoBehaviour {
       return this;
     }
 
+    public MeshBuilder AddTriangles (params Vector3[] triangleVertices) {
+      for (var ii = 0; ii < triangleVertices.Length; ) {
+        var (v0, v1, v2) = (triangleVertices[ii++], triangleVertices[ii++], triangleVertices[ii++]);
+        AddTriangleIndices(visibleIndices, visibleVertices.Count);
+        
+        visibleVertices.Add(v0);
+        visibleVertices.Add(v1);
+        visibleVertices.Add(v2);
+
+        var normal = Vector3.Cross(v1 - v0, v2 - v0).normalized;
+        normals.Add(normal);
+        normals.Add(normal);
+        normals.Add(normal);
+
+        var tangent = GetTangent(normal);
+        var bitangent = Vector3.Cross(tangent, normal);
+        uvs.Add(new Vector2(Vector3.Dot(v0, tangent), Vector3.Dot(v0, bitangent)));
+        uvs.Add(new Vector2(Vector3.Dot(v1, tangent), Vector3.Dot(v1, bitangent)));
+        uvs.Add(new Vector2(Vector3.Dot(v2, tangent), Vector3.Dot(v2, bitangent)));
+
+        AddTriangleIndices(collisionIndices, collisionVertices.Count);
+
+        collisionVertices.Add(v0);
+        collisionVertices.Add(v1);
+        collisionVertices.Add(v2);
+      }
+      return this;
+    }
+
+    Vector3 GetTangent (Vector3 normal) {
+      return Vector3.Cross(normal,
+        Mathf.Abs(normal.y) > new Vector2(normal.x, normal.z).magnitude ? Vector3.forward : Vector3.up).normalized;
+    }
+    
     public MeshBuilder AddQuadStrip (params Vector3[] quadVerticesAndNormals) {
       for (int ii = 0, nn = (quadVerticesAndNormals.Length - 4) / 4; ii < nn; ++ii) {
         AddParallelQuadIndices(visibleIndices, visibleVertices.Count + ii * 2);
@@ -232,6 +265,21 @@ public abstract class Ramp : MonoBehaviour {
         collisionVertices.Add(v1);
         normals.Add(quadVerticesAndNormals[ii + 3]);
         uvs.Add(uv - new Vector2(Vector3.Distance(v0, v1), 0.0f));
+      }
+      return this;
+    }
+
+    public MeshBuilder AddLip (params Vector3[] verticesAndUps) {
+      var v = 0.0f;
+      for (int ii = 0, ll = verticesAndUps.Length - 4; ii <= ll; ii += 2) {
+        var start = verticesAndUps[ii];
+        var end = verticesAndUps[(ii + 2) % verticesAndUps.Length];
+        AddLipSegment(
+          ii == 0 ? null : verticesAndUps[ii - 2],
+          start, verticesAndUps[ii + 1], v,
+          end, verticesAndUps[(ii + 3) % verticesAndUps.Length],
+          ii == ll ? null : verticesAndUps[ii + 4]);
+        v += Vector3.Distance(start, end);
       }
       return this;
     }
@@ -492,6 +540,12 @@ public abstract class Ramp : MonoBehaviour {
       indices.Add(firstIndex + 3);
       indices.Add(firstIndex + 2);
       indices.Add(firstIndex);
+    }
+
+    void AddTriangleIndices (List<int> indices, int firstIndex) {
+      indices.Add(firstIndex);
+      indices.Add(firstIndex + 1);
+      indices.Add(firstIndex + 2);
     }
 
     Vector3 GetPrevCutoutDir (Cutout cutout, Vector3 defaultDir) {

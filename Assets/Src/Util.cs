@@ -12,4 +12,8 @@ public static class Util {
     }
     return transformedBounds;
   }
+
+  public static Vector3 FlipX (this Vector3 vector) {
+    return new Vector3(-vector.x, vector.y, vector.z);
+  }
 }
