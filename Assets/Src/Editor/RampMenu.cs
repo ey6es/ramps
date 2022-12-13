@@ -18,6 +18,11 @@ public class RampMenu : MonoBehaviour {
     CreateRamp<ScaleRamp>(menuCommand, "Scale Ramp");
   }
 
+  [MenuItem("GameObject/Ramp/Split")]
+  static void CreateSplitRamp (MenuCommand menuCommand) {
+    CreateRamp<SplitRamp>(menuCommand, "Split Ramp");
+  }
+
   static void CreateRamp<T> (MenuCommand menuCommand, string name) where T : Ramp {
     var gameObject = new GameObject(name);
     gameObject.layer = LayerMask.NameToLayer("Ramp");

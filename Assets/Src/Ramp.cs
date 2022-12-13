@@ -293,30 +293,28 @@ public abstract class Ramp : MonoBehaviour {
 
         if (ii != 0) v += Vector3.Distance(verticesAndUps[ii - 2], vertex);
 
-        Plane? plane = null;
-        if (ii == 0 && prev.HasValue) plane = new Plane(((vertex - prev.Value).normalized + dir).normalized, vertex);
-        else if (ii == ll && next.HasValue) plane = new Plane((dir + (next.Value - vertex).normalized).normalized, vertex);
+        var otherDir = new Vector3();
+        if (ii == 0) {
+          if (prev.HasValue) otherDir = (vertex - prev.Value).normalized;
+        } else if (ii == ll) {
+          if (next.HasValue) otherDir = (next.Value - vertex).normalized;
+        } else {
+          otherDir = (vertex - verticesAndUps[ii - 2]).normalized;
+        }
+        var plane = new Plane((dir + otherDir).normalized, vertex);
 
         var uScale = outer.lipRadius * up.magnitude;
-        var leftV = v;
-        var rightV = v;
-        if (plane.HasValue) {
-          var diff = Mathf.Tan(Vector3.SignedAngle(plane.Value.normal, dir, up) * Mathf.Deg2Rad) * uScale;
-          leftV -= diff;
-          rightV += diff;
-        }
+        var vDiff = Mathf.Tan(Vector3.SignedAngle(plane.normal, dir, up) * Mathf.Deg2Rad) * uScale;
+        var leftV = v - vDiff;
+        var rightV = v + vDiff;
         for (var jj = 0; jj <= lipDivisions; ++jj) {
           var s = (float)jj / lipDivisions;
           var angle = Mathf.PI * s;
           var normal = Mathf.Sin(angle) * up - Mathf.Cos(angle) * right;
 
-          var point = vertex + normal * outer.lipRadius;
-          if (plane.HasValue) {
-            var ray = new Ray(point, dir);
-            plane.Value.Raycast(ray, out var enter);
-            visibleVertices.Add(ray.GetPoint(enter));
-
-          } else visibleVertices.Add(point);
+          var ray = new Ray(vertex + normal * outer.lipRadius, dir);
+          plane.Raycast(ray, out var enter);
+          visibleVertices.Add(ray.GetPoint(enter));
 
           normals.Add(normal.normalized);
           uvs.Add(new Vector3((s * 2.0f - 1.0f) * uScale, Mathf.Lerp(leftV, rightV, s)));

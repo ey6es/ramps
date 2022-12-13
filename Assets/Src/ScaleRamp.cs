@@ -48,8 +48,7 @@ public class ScaleRamp : Ramp {
   protected override Bounds GetLocalBounds () {
     var maxSize = size;
     if (scaleFactor > 1.0f) maxSize = new Vector3(size.x * scaleFactor, size.y * scaleFactor, size.z);
-    return new Bounds(
-      new Vector3(0.0f, -maxSize.y * 0.5f, size.z * 0.5f + lipRadius), new Vector3(maxSize.x, maxSize.y, size.z));
+    return new Bounds(new Vector3(0.0f, -extents.y, extents.z + lipRadius), new Vector3(maxSize.x, maxSize.y, size.z));
   }
 
   protected override void PopulateMeshBuilder (MeshBuilder builder) {
