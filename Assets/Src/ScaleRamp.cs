@@ -8,7 +8,7 @@ public class ScaleRamp : Ramp {
   Vector3 extents => size * 0.5f;
   Vector3 lipExtents => extents + new Vector3(lipRadius, 0.0f, 0.0f);
 
-  struct TraverserData {
+  class TraverserData {
     public float initialScale;
     public bool enteredFront;
 

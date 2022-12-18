@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 public class RampTraverser : MonoBehaviour {
@@ -5,7 +6,12 @@ public class RampTraverser : MonoBehaviour {
   public float raycastMaxDistance = 2.0f;
   public LayerMask raycastLayerMask;
 
-  Ramp lastRamp;
+  public int creationOrder { get; } = currentCreationOrder++;
+  public Ramp ramp { get; private set; }
+  public Stack<RampTraverser> counterparts { get; } = new Stack<RampTraverser>();
+
+  static int currentCreationOrder;
+
   object rampData;
 
   public void Align (Vector3 position, Vector3 normal) {
@@ -14,7 +20,7 @@ public class RampTraverser : MonoBehaviour {
     transform.Rotate(Vector3.Cross(transform.up, normal), angle, Space.World);
   }
 
-  void FixedUpdate () {
+  public void UpdateRamp () {
     RaycastHit hitInfo;
     if (Physics.Raycast(
         transform.position + transform.up * raycastHeight,
@@ -24,19 +30,23 @@ public class RampTraverser : MonoBehaviour {
         raycastLayerMask,
         QueryTriggerInteraction.Ignore)) {
       SetRamp(hitInfo.transform.GetComponent<Ramp>());
-      if (lastRamp) lastRamp.OnTraverserStay(this, hitInfo, ref rampData);
+      if (ramp) ramp.OnTraverserStay(this, hitInfo, ref rampData);
 
     } else SetRamp(null);
+  }
+
+  void FixedUpdate () {
+    UpdateRamp();
   }
 
   void OnDestroy () {
     SetRamp(null);    
   }
 
-  void SetRamp (Ramp ramp) {
-    if (lastRamp == ramp) return;
-    if (lastRamp) lastRamp.OnTraverserExit(this, rampData);
-    lastRamp = ramp;
-    if (lastRamp) lastRamp.OnTraverserEnter(this, ref rampData);
+  void SetRamp (Ramp newRamp) {
+    if (ramp == newRamp) return;
+    if (ramp) ramp.OnTraverserExit(this, rampData);
+    ramp = newRamp;
+    if (ramp) ramp.OnTraverserEnter(this, ref rampData);
   }
 }

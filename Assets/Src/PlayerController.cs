@@ -5,7 +5,10 @@ public class PlayerController : MonoBehaviour {
   public float sensitivity = 5.0f;
   public Transform head;
 
+  [SerializeField]
   float pitch;
+
+  [SerializeField]
   bool mouseEnabled;
 
   void Start () {

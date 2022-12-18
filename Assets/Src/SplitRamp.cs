@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class SplitRamp : Ramp {
-  public float entryWidth = 1.2f;
+  public float entryWidth = 1.1f;
   public float centralWidth = 1.1f;
   public float height = 0.5f;
   public float legLength = 2.0f;
@@ -15,6 +15,67 @@ public class SplitRamp : Ramp {
   float innerFarX => outerFarX - centralWidth * (Mathf.Cos(halfAngle) + Mathf.Sin(halfAngle) * Mathf.Tan(halfAngle));
   float totalLength => legLength + Mathf.Cos(halfAngle) * outerHypot;
   float farZ => lipRadius * 2.0f + totalLength;
+
+  public override void OnTraverserEnter (RampTraverser traverser, ref object data) {
+    var midpoint = GetMidpoint(traverser);
+    var localPosition = transform.InverseTransformPoint(traverser.transform.position);
+    data = localPosition.z <= midpoint;
+  }
+
+  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, ref object data) {
+    base.OnTraverserStay(traverser, hitInfo, ref data);
+    var lastFront = (bool)data;
+
+    var midpoint = GetMidpoint(traverser);
+    var localPosition = transform.InverseTransformPoint(traverser.transform.position);
+    if (localPosition.z > midpoint) {
+      data = false;
+      if (traverser.counterparts.Count > 0) {
+        var other = traverser.counterparts.Peek();
+        if (other.counterparts.Peek() == traverser && other.ramp == this) {
+          traverser.GetComponent<CharacterController>().detectCollisions = false;
+
+          // align the two counterparts
+          if (traverser.creationOrder < other.creationOrder) {
+            other.transform.position = transform.TransformPoint(localPosition.FlipX());
+          }
+          return;
+        }
+      }
+      if (lastFront) {
+        // split into counterparts
+        traverser.GetComponent<CharacterController>().detectCollisions = false;
+        var younger = Instantiate(traverser.gameObject).GetComponent<RampTraverser>();
+        Destroy(younger.GetComponentInChildren<AudioListener>());
+        younger.counterparts.Push(traverser);
+        traverser.counterparts.Push(younger);
+        younger.UpdateRamp();
+
+      } else {
+        localPosition.z = Mathf.Max(localPosition.z, farZ - lipRadius * 2.0f);
+        traverser.transform.position = transform.TransformPoint(localPosition);
+      }
+    } else {
+      data = true;
+      if (traverser.counterparts.Count > 0) {
+        var other = traverser.counterparts.Peek();
+        if (other.counterparts.Peek() == traverser && other.ramp == this) {
+          // merge the two counterparts
+          var (older, younger) = traverser.creationOrder < other.creationOrder ? (traverser, other) : (other, traverser);
+          older.counterparts.Pop();
+          Destroy(younger.gameObject);
+        }
+      }
+    }
+  }
+
+  public override void OnTraverserExit (RampTraverser traverser, object data) {
+    traverser.GetComponent<CharacterController>().detectCollisions = true;
+  }
+
+  float GetMidpoint (RampTraverser traverser) {
+    return lipRadius + legLength + traverser.GetComponent<CharacterController>().radius;
+  }
 
   protected override Bounds GetLocalBounds () {
     return new Bounds(new Vector3(0.0f, -height * 0.5f, totalLength * 0.5f + lipRadius),

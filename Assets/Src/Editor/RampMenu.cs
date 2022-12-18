@@ -26,8 +26,7 @@ public class RampMenu : MonoBehaviour {
   static void CreateRamp<T> (MenuCommand menuCommand, string name) where T : Ramp {
     var gameObject = new GameObject(name);
     gameObject.layer = LayerMask.NameToLayer("Ramp");
-    var platform = gameObject.AddComponent<T>();
-    platform.SetMaterial(AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Ramp.mat"));
+    gameObject.AddComponent<T>().SetMaterial(AssetDatabase.LoadAssetAtPath<Material>("Assets/Materials/Ramp.mat"));
     GameObjectUtility.SetParentAndAlign(gameObject, menuCommand.context as GameObject);
     Undo.RegisterCreatedObjectUndo(gameObject, "Create " + gameObject.name);
     Selection.activeObject = gameObject;

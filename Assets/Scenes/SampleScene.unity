@@ -3331,6 +3331,8 @@ MonoBehaviour:
   speed: 0.2
   sensitivity: 5
   head: {fileID: 963194228}
+  pitch: 0
+  mouseEnabled: 0
 --- !u!4 &1330868418
 Transform:
   m_ObjectHideFlags: 0
