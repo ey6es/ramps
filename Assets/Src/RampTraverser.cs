@@ -8,11 +8,10 @@ public class RampTraverser : MonoBehaviour {
 
   public int creationOrder { get; } = currentCreationOrder++;
   public Ramp ramp { get; private set; }
+  public object rampData { get; private set; }
   public Stack<RampTraverser> counterparts { get; } = new Stack<RampTraverser>();
 
   static int currentCreationOrder;
-
-  object rampData;
 
   public void Align (Vector3 position, Vector3 normal) {
     transform.position = position;
@@ -30,7 +29,7 @@ public class RampTraverser : MonoBehaviour {
         raycastLayerMask,
         QueryTriggerInteraction.Ignore)) {
       SetRamp(hitInfo.transform.GetComponent<Ramp>());
-      if (ramp) ramp.OnTraverserStay(this, hitInfo, ref rampData);
+      if (ramp) ramp.OnTraverserStay(this, hitInfo, rampData);
 
     } else SetRamp(null);
   }
@@ -45,8 +44,10 @@ public class RampTraverser : MonoBehaviour {
 
   void SetRamp (Ramp newRamp) {
     if (ramp == newRamp) return;
-    if (ramp) ramp.OnTraverserExit(this, rampData);
-    ramp = newRamp;
-    if (ramp) ramp.OnTraverserEnter(this, ref rampData);
+    if (ramp) {
+      ramp.OnTraverserExit(this, rampData);
+      rampData = null;
+    }
+    if ((ramp = newRamp)) rampData = ramp.OnTraverserEnter(this);
   }
 }

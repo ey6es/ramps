@@ -18,12 +18,12 @@ public class ScaleRamp : Ramp {
     }
   }
 
-  public override void OnTraverserEnter (RampTraverser traverser, ref object data) {
-    data = new TraverserData(traverser.transform.localScale.x, IsTraverserAtFront(traverser));
+  public override object OnTraverserEnter (RampTraverser traverser) {
+    return new TraverserData(traverser.transform.localScale.x, IsTraverserAtFront(traverser));
   }
 
-  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, ref object data) {
-    base.OnTraverserStay(traverser, hitInfo, ref data);
+  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, object data) {
+    base.OnTraverserStay(traverser, hitInfo, data);
 
     UpdateTraverserScale(traverser, (TraverserData)data,
       (transform.InverseTransformPoint(traverser.transform.position).z - lipRadius) / size.z);

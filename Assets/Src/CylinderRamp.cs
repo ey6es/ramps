@@ -13,7 +13,7 @@ public class CylinderRamp : Ramp {
   int divisions => System.Math.Max(1, (int)(radius * Mathf.Abs(angle * Mathf.Deg2Rad) * detail));
   Vector3 center => new Vector3(0.0f, angle > 0 ? -radius : radius, lipRadius);
 
-  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, ref object data) {
+  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, object data) {
     var traverserTransform = traverser.GetComponent<Transform>();
     var localPosition = transform.InverseTransformPoint(traverserTransform.position);
     var sign = Mathf.Sign(angle);

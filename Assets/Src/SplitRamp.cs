@@ -16,27 +16,38 @@ public class SplitRamp : Ramp {
   float totalLength => legLength + Mathf.Cos(halfAngle) * outerHypot;
   float farZ => lipRadius * 2.0f + totalLength;
 
-  public override void OnTraverserEnter (RampTraverser traverser, ref object data) {
-    var midpoint = GetMidpoint(traverser);
-    var localPosition = transform.InverseTransformPoint(traverser.transform.position);
-    data = localPosition.z <= midpoint;
+  class TraverserData {
+    public bool lastFront;
+    public Rect targetRect;
+
+    public TraverserData (bool lastFront, Rect targetRect) {
+      this.lastFront = lastFront;
+      this.targetRect = targetRect;
+    }
   }
 
-  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, ref object data) {
-    base.OnTraverserStay(traverser, hitInfo, ref data);
-    var lastFront = (bool)data;
+  public override object OnTraverserEnter (RampTraverser traverser) {
+    var midpoint = GetMidpoint(traverser);
+    var localPosition = transform.InverseTransformPoint(traverser.transform.position);
+    return new TraverserData(localPosition.z <= midpoint, traverser.GetComponentInChildren<Camera>().rect);
+  }
+
+  public override void OnTraverserStay (RampTraverser traverser, RaycastHit hitInfo, object data) {
+    base.OnTraverserStay(traverser, hitInfo, data);
+    var traverserData = (TraverserData)data;
+    var lastFront = traverserData.lastFront;
 
     var midpoint = GetMidpoint(traverser);
     var localPosition = transform.InverseTransformPoint(traverser.transform.position);
     if (localPosition.z > midpoint) {
-      data = false;
+      traverserData.lastFront = false;
       if (traverser.counterparts.Count > 0) {
         var other = traverser.counterparts.Peek();
         if (other.counterparts.Peek() == traverser && other.ramp == this) {
           traverser.GetComponent<CharacterController>().detectCollisions = false;
 
           // align the two counterparts
-          if (traverser.creationOrder < other.creationOrder) {
+          if (traverser.creationOrder > other.creationOrder) {
             other.transform.position = transform.TransformPoint(localPosition.FlipX());
           }
           return;
@@ -50,18 +61,34 @@ public class SplitRamp : Ramp {
         younger.counterparts.Push(traverser);
         traverser.counterparts.Push(younger);
         younger.UpdateRamp();
-
+        var camera = traverser.GetComponentInChildren<Camera>();
+        var rect = camera.rect;
+        if (camera.pixelWidth > camera.pixelHeight) {
+          var halfWidth = rect.width * 0.5f;
+          traverserData.targetRect = new Rect(rect.x, rect.y, halfWidth, rect.height);
+          ((TraverserData)younger.rampData).targetRect = new Rect(rect.x + halfWidth, rect.y, halfWidth, rect.height);
+        } else {
+          var halfHeight = rect.height * 0.5f;
+          traverserData.targetRect = new Rect(rect.x, rect.y, rect.width, halfHeight);
+          ((TraverserData)younger.rampData).targetRect = new Rect(rect.x, rect.y + halfHeight, rect.width, halfHeight);
+        }
       } else {
         localPosition.z = Mathf.Max(localPosition.z, farZ - lipRadius * 2.0f);
         traverser.transform.position = transform.TransformPoint(localPosition);
       }
     } else {
-      data = true;
+      traverserData.lastFront = true;
       if (traverser.counterparts.Count > 0) {
         var other = traverser.counterparts.Peek();
         if (other.counterparts.Peek() == traverser && other.ramp == this) {
           // merge the two counterparts
           var (older, younger) = traverser.creationOrder < other.creationOrder ? (traverser, other) : (other, traverser);
+          var olderData = (TraverserData)older.rampData;
+          var youngerRect = ((TraverserData)younger.rampData).targetRect;
+          var min = Vector2.Min(olderData.targetRect.min, youngerRect.min);
+          var max = Vector2.Max(olderData.targetRect.max, youngerRect.max);
+          olderData.targetRect = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+          older.GetComponentInChildren<Camera>().rect = olderData.targetRect;
           older.counterparts.Pop();
           Destroy(younger.gameObject);
         }
@@ -71,6 +98,7 @@ public class SplitRamp : Ramp {
 
   public override void OnTraverserExit (RampTraverser traverser, object data) {
     traverser.GetComponent<CharacterController>().detectCollisions = true;
+    traverser.GetComponentInChildren<Camera>().rect = ((TraverserData)data).targetRect;
   }
 
   float GetMidpoint (RampTraverser traverser) {
